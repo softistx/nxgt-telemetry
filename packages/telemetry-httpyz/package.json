@@ -1,0 +1,68 @@
+{
+	"name": "@nxgt/telemetry-httpyz",
+	"version": "0.1.0",
+	"description": "An @nxgt/httpyz middleware for @nxgt/telemetry: one client span per call, with the current traceparent on the way out",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"httpyz",
+		"telemetry",
+		"observability",
+		"tracing",
+		"middleware",
+		"traceparent",
+		"opentelemetry",
+		"typescript"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-telemetry.git",
+		"directory": "packages/telemetry-httpyz"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"dependencies": {
+		"@nxgt/telemetry": "workspace:^"
+	},
+	"devDependencies": {
+		"@nxgt/httpyz": "0.3.0",
+		"@types/bun": "^1.4.2"
+	},
+	"peerDependencies": {
+		"@nxgt/httpyz": "^0.3.0",
+		"typescript": "^6.0.3"
+	},
+	"peerDependenciesMeta": {
+		"@nxgt/httpyz": {
+			"optional": true
+		}
+	}
+}

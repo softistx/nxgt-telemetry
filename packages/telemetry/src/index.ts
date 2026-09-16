@@ -1,4 +1,18 @@
 export * from './attributes/attributes';
+export * from './context/current';
+export * from './export/console';
+export * from './export/exporter';
+export * from './export/file';
+export * from './export/json-lines';
+export type { PipelineOptions } from './export/pipeline';
+export * from './export/rotation';
+export * from './logger/event';
+export * from './logger/logger';
+export type { StandardSchemaV1 } from './logger/standard-schema';
+export * from './model/error';
 export * from './model/signal';
+export * from './span/scope';
+export * from './span/span';
+export * from './telemetry/telemetry';
 export * from './trace/ids';
 export * from './trace/sampler';

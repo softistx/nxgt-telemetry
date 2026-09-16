@@ -17,6 +17,14 @@ export type Attributes = Readonly<Record<string, AttributeValue>>;
 export const EMPTY_ATTRIBUTES: Attributes = Object.freeze({});
 
 /**
+ * What a value reads as when reading it threw. A getter that throws, a revoked
+ * Proxy and a `toString` that raises all arrive here — from application code,
+ * in a `catch`, which is exactly where a log must not become the second
+ * failure.
+ */
+export const UNREADABLE = '[unreadable]';
+
+/**
  * Whatever a caller passed, as something that can be indexed.
  *
  * - `undefined` and a symbol render as `null`;
@@ -29,6 +37,16 @@ export const EMPTY_ATTRIBUTES: Attributes = Object.freeze({});
  *   not — a circular object still says something.
  */
 export function coerceAttribute(value: unknown): AttributeValue {
+	try {
+		return coerce(value);
+	} catch {
+		// Reading the value ran application code, and it threw. Writing a
+		// signal is a total function: it says so and carries on.
+		return UNREADABLE;
+	}
+}
+
+function coerce(value: unknown): AttributeValue {
 	if (value === null || value === undefined) return null;
 
 	switch (typeof value) {
@@ -62,13 +80,30 @@ export function coerceAttribute(value: unknown): AttributeValue {
 export function attributesOf(
 	input: Readonly<Record<string, unknown>> | undefined,
 ): Attributes {
-	if (input === undefined) return EMPTY_ATTRIBUTES;
+	if (input === undefined || input === null) return EMPTY_ATTRIBUTES;
+
+	// `Object.keys` runs an `ownKeys` trap, and reading a key runs a getter.
+	// Both are application code on the path that writes a signal.
+	let keys: string[];
+	try {
+		keys = Object.keys(input);
+	} catch {
+		return EMPTY_ATTRIBUTES;
+	}
 
 	const attributes: Record<string, AttributeValue> = {};
 	let any = false;
 
-	for (const key of Object.keys(input)) {
-		const value = input[key];
+	for (const key of keys) {
+		let value: unknown;
+		try {
+			value = input[key];
+		} catch {
+			attributes[key] = UNREADABLE;
+			any = true;
+			continue;
+		}
+
 		if (value === undefined) continue;
 		attributes[key] = coerceAttribute(value);
 		any = true;
@@ -113,6 +148,6 @@ function render(value: unknown): string {
 	try {
 		return String(value);
 	} catch {
-		return '[unrenderable]';
+		return UNREADABLE;
 	}
 }

@@ -13,7 +13,7 @@ The `@nxgt/*` packages for observability, published to the public npm registry:
 | `@nxgt/telemetry-hono` | `telemetry()`: a Hono middleware that wraps the handler in one server span |
 | `@nxgt/telemetry-httpyz` | a `@nxgt/httpyz` middleware: one client span per call, `traceparent` injected |
 | `@nxgt/telemetry-mongo` | `mongoExporter` (signals behind a TTL index) and `instrumentMongo` (spans from the driver's command monitoring) |
-| `@nxgt/telemetry-logging` | the winston bridge, both directions, never both at once |
+| `@nxgt/telemetry-logging` | the winston bridge, both directions, never both at once. Nothing imports winston: the format is an object with `transform`, the transport is a `node:stream` `Writable` |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-data`, which took
 it from `softistx/nxgt-http`: the same build, artifact check, publish script, CI
@@ -127,11 +127,31 @@ and the READMEs say so.
 
 **There are no cycles and there must not be one.** An integration depends on the
 core by `workspace:^` and imports it by its published name; there is no tsconfig
-`paths` to it and no relative import into it.
+`paths` to it and no relative import into it. **One integration never imports
+another**, and that — not "never share code" — is what the duplication table is
+about: something two integrations both need may move into the core when it is
+genuinely a telemetry concern, and is otherwise kept twice with a row in that
+table saying so.
 
-- **The core's `dependencies` is empty and stays empty.** `@standard-schema/spec`
-  is a `devDependency`: it is a contract of types, with no runtime. Anything that
-  would need a real dependency is an integration package, not the core.
+**The core is a `dependencies` of each integration, not a peer, and that is
+deliberate.** A required peer would be the stricter guarantee — one copy, and
+therefore one `AsyncLocalStorage` — but `verify:artifacts` refuses a required
+peer on a package that is on no registry, which is exactly where
+`@nxgt/telemetry` is until the first release. `workspace:^` publishes as
+`^0.1.0`, so a consumer on any overlapping range resolves to one copy anyway.
+The residual risk is real and worth knowing: a consumer who pins
+`@nxgt/telemetry` to a range that stops overlapping gets **two** copies, two
+storages, and `currentSpan()` answering `undefined` inside a span — with no
+error message, because nothing is wrong at the type level. Revisit this once
+the core is published: a required peer is then allowed, and it is the better
+answer.
+
+- **The core's `dependencies` is empty and stays empty**, and so is its
+  `devDependencies` apart from `@types/bun`. [Standard
+  Schema](https://standardschema.dev) is a contract of types with no runtime, so
+  it is **declared in the source** (`src/logger/standard-schema.ts`), the way
+  `@nxgt/httpyz` declares it, rather than depended on. Anything that would need a
+  real dependency is an integration package, not the core.
 - **An integration's host is an *optional* peer** — `hono`, `@nxgt/httpyz`,
   `mongodb`, `winston` — pinned exactly as a devDependency so the specs run
   against a known version. A **required** peer on a package a consumer did not
@@ -295,7 +315,9 @@ publishes to npm.
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both |
-| the span-shaped fields an integration builds (`http.request.method`, `url.path`, status mapping) in `-hono` and `-httpyz` | one is a server span and the other a client span; they share four attribute names and nothing else. A shared helper would make each depend on the other's host |
+| the span-shaped fields an integration builds (`http.request.method`, `url.path`, status mapping) in `-hono` and `-httpyz` | one is a server span and the other a client span, and they disagree where it matters: a client call fails at **400**, a server request at **500**. A shared builder would make each depend on the other's host. **A name they both set must mean the same thing** — `server.address` is the host without its port on both sides, and `server.port` carries it — because a server span and the client span that called it end up on the same dashboard |
+| `SERVER_ADDRESS` and `SERVER_PORT` declared again in `-mongo/src/attributes/db.ts` | it is the same name and the same meaning — the host without its port, and the port beside it — but the constant is three lines and the alternative is `-mongo` importing `-httpyz`, which is the rule above. One integration never imports another. **The meaning is what must stay in step, not the declaration** |
+| the `guarded` hook wrapper, and `always`/`nothing`, in `-hono` and `-httpyz` | twelve lines that touch neither host. Each integration stays installable on its own, and the core has no hooks to justify owning it. Change both when the reason applies to both |
 
 ## Conventions
 
@@ -321,10 +343,28 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **58 pass, 0 fail**: `@nxgt/telemetry` 53, scripts 5. It runs
-one process per package, then the scripts' specs. Treat any failure as yours.
+`bun run test` is **528 pass, 0 fail**: `@nxgt/telemetry` 238,
+`@nxgt/telemetry-otlp` 72, `@nxgt/telemetry-hono` 44,
+`@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67,
+`@nxgt/telemetry-logging` 62, scripts 5. It runs one process per package, then
+the scripts' specs. Treat any failure as yours.
 
-Only the shared vocabulary has landed — the signal model, attributes, trace
-identity and the samplers. `createTelemetry`, `span`, the logger, the pipeline
-and the exporters are being built on the `feat/telemetry` integration branch,
-and no package has been published yet.
+`@nxgt/telemetry-mongo`'s specs run against a **real mongod**, downloaded once by
+`mongodb-memory-server-core` into `.cache/mongodb` and cached in CI on the hash of
+`packages/telemetry-mongo/test/server.ts`. That is deliberate: the behaviour the
+exporter is built around — Mongo answering `IndexOptionsConflict` rather than
+adopting a new `expireAfterSeconds` — is exactly what a double would have been
+written to agree with.
+
+`@nxgt/telemetry` is complete: the vocabulary, the root, the context, the
+pipeline, `span`/`continuing`, the logger, and the console, JSON-lines and file
+exporters. `@nxgt/telemetry-otlp` is complete: the two documents, the transport,
+the retry policy and the three failures. `@nxgt/telemetry-hono` is
+complete: the server span, the `traceparent` continuation, the route rename and
+the context variables. `@nxgt/telemetry-httpyz` is complete: the client span,
+the outgoing header and the 400 rule. `@nxgt/telemetry-mongo` is complete: the
+exporter, its TTL retention, and command-monitoring spans.
+`@nxgt/telemetry-logging` is complete: the format, the transport, the exporter
+and the guard against wiring both halves at one logger. Every package of the
+effort is written; what is left on the `feat/telemetry` integration branch is
+the documentation slice and the end-to-end. Nothing has been published yet.

@@ -1,0 +1,68 @@
+{
+	"name": "@nxgt/telemetry-hono",
+	"version": "0.1.0",
+	"description": "A Hono middleware for @nxgt/telemetry: one server span per request, W3C traceparent continuation, and the route as the span name",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"hono",
+		"telemetry",
+		"observability",
+		"tracing",
+		"middleware",
+		"traceparent",
+		"opentelemetry",
+		"typescript"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-telemetry.git",
+		"directory": "packages/telemetry-hono"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"dependencies": {
+		"@nxgt/telemetry": "workspace:^"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.2",
+		"hono": "4.13.8"
+	},
+	"peerDependencies": {
+		"hono": "^4.8.0",
+		"typescript": "^6.0.3"
+	},
+	"peerDependenciesMeta": {
+		"hono": {
+			"optional": true
+		}
+	}
+}
