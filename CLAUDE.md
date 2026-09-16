@@ -15,13 +15,14 @@ releasing works, and the duplications that are deliberate.
 The skills come from the `nxgt-core` marketplace, enabled in the committed
 `.claude/settings.json`: `nxgt-workflow` (`large-feature-branch-workflow`,
 `write-a-repo-script`), `nxgt-package` (`create-a-package`,
-`release-a-package-change`) and `nxgt-docs`. They are authored in
-`softistx/nxgt-core`, under `plugins/`; nothing is copied here.
+`release-a-package-change`), `nxgt-docs` and `nxgt-review`. They are
+authored in `softistx/nxgt-core`, under `plugins/`; nothing is copied here.
 
 A skill that is genuinely only about this repository goes in
 `.claude/skills/<name>/SKILL.md`.
 
-The `code-reviewer` agent in `.claude/agents/` is this repository's own. Run it
+The `code-reviewer` agent comes from `nxgt-review`; what it checks here is in
+`plugins/nxgt-review/references/nxgt-telemetry.md` in nxgt-core. Run it
 before opening a pull request; it reads and reports, and never edits.
 
 ## Keeping it that way
