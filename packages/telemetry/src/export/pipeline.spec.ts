@@ -185,8 +185,31 @@ describe('close', () => {
 		expect(closed).toBe(1);
 	});
 
-	test('returns within drainTimeout against an exporter that never answers', async () => {
+	/**
+	 * A SIGTERM handler awaits this. Both halves have to be bounded: an export
+	 * that never answers, and an exporter that will not let go of its socket.
+	 * Bounding only the first leaves the process hanging on the second.
+	 */
+	test('returns within drainTimeout against an export that never answers', async () => {
 		const stuck: Exporter = { export: () => new Promise<void>(() => {}) };
+		const { instance, failures } = pipeline([stuck], {
+			batch: 1,
+			drainTimeout: 20,
+		});
+
+		instance.post(log('a'));
+		const started = Date.now();
+		await instance.close();
+
+		expect(Date.now() - started).toBeLessThan(1_000);
+		expect(String(failures[0])).toContain('did not ship');
+	});
+
+	test('returns within drainTimeout against a close that never answers', async () => {
+		const stuck: Exporter = {
+			export() {},
+			close: () => new Promise<void>(() => {}),
+		};
 		const { instance } = pipeline([stuck], { batch: 1, drainTimeout: 20 });
 
 		instance.post(log('a'));
@@ -194,6 +217,19 @@ describe('close', () => {
 		await instance.close();
 
 		expect(Date.now() - started).toBeLessThan(1_000);
+	});
+
+	test('a drain that had time is not reported as a timeout', async () => {
+		const { exporter } = recorder();
+		const { instance, failures } = pipeline([exporter], {
+			batch: 1,
+			drainTimeout: 1_000,
+		});
+
+		instance.post(log('a'));
+		await instance.close();
+
+		expect(failures).toEqual([]);
 	});
 
 	test('post after close is refused rather than throwing', async () => {

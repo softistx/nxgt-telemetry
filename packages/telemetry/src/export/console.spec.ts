@@ -97,6 +97,19 @@ describe('a log line', () => {
 	});
 });
 
+describe('an instant a Date cannot hold', () => {
+	test('is rendered rather than costing the rest of the batch', () => {
+		const written = lines([
+			{ ...log, at: Number.POSITIVE_INFINITY },
+			{ ...log, name: 'after' },
+		]);
+
+		expect(written).toHaveLength(2);
+		expect(written[0]).toContain('Infinity');
+		expect(written[1]).toContain('after');
+	});
+});
+
 describe('a span line', () => {
 	test('is the clock it ended at, its name and how long it took', () => {
 		expect(lines([span])).toEqual([

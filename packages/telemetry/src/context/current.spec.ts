@@ -181,8 +181,25 @@ describe('withAttributes', () => {
 		});
 	});
 
-	test('outside any context, it runs the block unchanged', () => {
+	test('with nothing installed at all, it runs the block unchanged', () => {
 		expect(withAttributes({ tenant: 'acme' }, () => 'ran')).toBe('ran');
+		expect(currentAttributes()).toBe(EMPTY_ATTRIBUTES);
+	});
+
+	/**
+	 * The top level of an application, before any span has opened: there is no
+	 * context to extend, but there is a telemetry to write to, so the logs
+	 * written here must carry these attributes rather than silently lose them.
+	 */
+	test('with a telemetry installed and no span yet, it opens a context', () => {
+		const installed = createTelemetry('checkout').install();
+
+		withAttributes({ tenant: 'acme' }, () => {
+			expect(currentAttributes()).toEqual({ tenant: 'acme' });
+			expect(currentContext()?.telemetry).toBe(installed);
+			expect(currentSpan()).toBeUndefined();
+		});
+
 		expect(currentAttributes()).toBe(EMPTY_ATTRIBUTES);
 	});
 });

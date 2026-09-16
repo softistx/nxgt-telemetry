@@ -70,9 +70,13 @@ export class Pipeline {
 	 *
 	 * It has to be awaited, and it is the one thing here that a caller waits
 	 * for: a close that returned before the backlog shipped would lose exactly
-	 * the signals a shutdown most needs to explain itself. `drainTimeout`
-	 * bounds it, so a collector that stopped answering does not become the
-	 * reason a process will not exit.
+	 * the signals a shutdown most needs to explain itself.
+	 *
+	 * **`drainTimeout` bounds the whole of it** — the drain and the exporters'
+	 * own `close` together — so neither a collector that stopped answering nor
+	 * an exporter that will not let go of its socket becomes the reason a
+	 * process will not exit. A drain that runs out of time is reported to
+	 * `onExportError`; see {@link Exporter} for what that suspends.
 	 */
 	close(): Promise<void> {
 		this.closing ??= this.drainAndClose();
@@ -80,17 +84,19 @@ export class Pipeline {
 	}
 
 	private flush(): void {
+		this.clearTimer();
 		if (this.buffer.length === 0) return;
 
 		const batch = this.buffer;
 		this.buffer = [];
 
-		if (this.timer !== undefined) {
-			clearTimeout(this.timer);
-			this.timer = undefined;
-		}
-
 		this.draining = this.draining.then(() => this.ship(batch));
+	}
+
+	private clearTimer(): void {
+		if (this.timer === undefined) return;
+		clearTimeout(this.timer);
+		this.timer = undefined;
 	}
 
 	private async ship(batch: readonly Signal[]): Promise<void> {
@@ -107,8 +113,30 @@ export class Pipeline {
 		this.closed = true;
 		this.flush();
 
-		await Promise.race([this.draining, timeout(this.options.drainTimeout)]);
+		// One deadline for the whole close, started here. Bounding the drain
+		// alone would leave an exporter whose own `close` never answers holding
+		// a SIGTERM handler open for ever, which is the failure this is for.
+		const deadline = timeout(this.options.drainTimeout);
 
+		const drained = await Promise.race([
+			this.draining.then(() => true),
+			deadline.then(() => false),
+		]);
+
+		if (!drained) {
+			this.report(
+				new Error(
+					`[telemetry] the backlog did not ship within ${this.options.drainTimeout}ms; closing anyway`,
+				),
+			);
+		}
+
+		// `closeExporters` never rejects, so racing it past the deadline leaves
+		// a promise nobody awaits rather than an unhandled rejection.
+		await Promise.race([this.closeExporters(), deadline]);
+	}
+
+	private async closeExporters(): Promise<void> {
 		for (const exporter of this.options.exporters) {
 			try {
 				await exporter.close?.();

@@ -74,6 +74,10 @@ function renderSpan(span: SpanRecord): string {
 }
 
 function clock(at: number): string {
+	// `toISOString` throws on an instant outside the range a Date can hold, and
+	// a throw here would cost every signal after it in the batch. Nothing in
+	// this library refuses a value.
+	if (!Number.isFinite(at) || Math.abs(at) > 8.64e15) return String(at);
 	return new Date(at).toISOString().slice(11, 23);
 }
 

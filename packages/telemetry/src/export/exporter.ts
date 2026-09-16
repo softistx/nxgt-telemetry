@@ -29,6 +29,13 @@ export interface Exporter {
 		batch: readonly Signal[],
 	) => void | Promise<void>;
 
-	/** Called once, after the last batch has drained. Optional. */
+	/**
+	 * Called once, after the last batch has drained. Optional.
+	 *
+	 * The one exception is a drain that ran out of time: `close` is then called
+	 * while an `export` may still be in flight, because the alternative is a
+	 * process that will not exit. The timeout is reported to `onExportError`
+	 * first, so it is never silent.
+	 */
 	close?: () => void | Promise<void>;
 }

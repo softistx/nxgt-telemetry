@@ -73,22 +73,27 @@ export function withTelemetry<T>(telemetry: Telemetry, fn: () => T): T {
 /**
  * Runs `fn` with these attributes inherited by every log and span inside it.
  *
- * Outside any context it runs `fn` unchanged: attaching attributes to nothing
- * is not an error, and a library that does it must work in an application that
- * has never heard of this one.
+ * With no context open but a telemetry installed — the top level of an
+ * application, before any span — it opens one, so the attributes reach the logs
+ * written there. With nothing installed either it runs `fn` unchanged:
+ * attaching attributes to nothing is not an error, and a library that does it
+ * must work in an application that has never heard of this one.
  */
 export function withAttributes<T>(
 	attributes: Readonly<Record<string, unknown>>,
 	fn: () => T,
 ): T {
+	const given = attributesOf(attributes);
 	const context = currentContext();
-	if (context === undefined) return fn();
+
+	if (context === undefined) {
+		const telemetry = installedTelemetry();
+		if (telemetry === undefined) return fn();
+		return runWithContext({ telemetry, attributes: given }, fn);
+	}
 
 	return runWithContext(
-		{
-			...context,
-			attributes: mergeAttributes(context.attributes, attributesOf(attributes)),
-		},
+		{ ...context, attributes: mergeAttributes(context.attributes, given) },
 		fn,
 	);
 }
