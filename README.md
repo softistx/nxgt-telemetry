@@ -14,6 +14,12 @@ Logs and traces for a TypeScript service, without an OpenTelemetry SDK.
 Each package's README, its npm page, shows how to use it, then documents every
 function, class and type it exports in its **API** section.
 
+New to tracing, or to this library's words for it? The
+[**Concepts**](packages/telemetry/README.md#concepts) section of the core README
+defines each one — telemetry, resource, signal, trace, span, span context,
+propagation, context, attributes and their inheritance, severity, declared
+events, sampling, exporters, the pipeline — with a short example for each.
+
 ## How they fit
 
 ```

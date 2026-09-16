@@ -24,6 +24,340 @@ vocabulary exactly: the same severities, span kinds, statuses, `traceparent`
 rules, sampling rule and attribute names. A trace started in one and continued
 in the other is one trace.
 
+## Concepts
+
+Every word this library uses, once, with the smallest example that shows it.
+The sections after this one go deeper; this is the glossary to come back to.
+
+### Telemetry
+
+The root object: one per service. It knows **who** is speaking (the resource),
+**how much** to keep (the sampler, the minimum severity) and **where** signals go
+(the exporters). Everything else — spans, loggers — finds it through the context,
+or falls back to the one `install()`ed.
+
+```ts
+const telemetry = createTelemetry('checkout', {
+  exporters: [consoleExporter()],
+}).install();
+
+await telemetry.close();   // ships what is left; must be awaited
+```
+
+### Resource
+
+What every signal from one telemetry is about: the service, its version, its
+environment, and any attributes you add. It is stamped once, not repeated by
+each call site.
+
+```ts
+createTelemetry('checkout', {
+  version: '1.4.0',
+  environment: 'production',
+  attributes: { 'deployment.region': 'eu-west-1' },
+});
+// telemetry.resource
+// → { service: 'checkout', version: '1.4.0', environment: 'production',
+//     attributes: { 'deployment.region': 'eu-west-1' } }
+```
+
+### Signal
+
+The unit an exporter receives. There are two kinds, told apart by `type`: a
+**log record** and a **span record**. Metrics would be a third kind; nothing
+else would have to change.
+
+```ts
+function describe(signal: Signal): string {
+  return signal.type === 'log'
+    ? `${signal.severity} ${signal.name}`
+    : `${signal.name} took ${signal.endedAt - signal.startedAt} ms`;
+}
+```
+
+### Trace
+
+All the work done for one request, across every service it touched. It has no
+object of its own: it is every span that shares one **trace id**.
+
+```ts
+await span('GET /orders/:id', { kind: 'server' }, async () => {
+  await span('load order', {}, async () => { /* … */ });
+  await span('price order', {}, async () => { /* … */ });
+});
+// three spans, one traceId: that is the trace
+```
+
+### Span
+
+One timed piece of work inside a trace: a name, a start, an end, a status, and
+the span it happened inside (its **parent**). A span is a block you `await`, and
+the block's lifetime *is* the span's.
+
+```ts
+const total = await span('price order', { attributes: { orderId } }, async (scope) => {
+  scope.attribute('items', order.items.length);
+  return computeTotal(order);
+});
+```
+
+A span with no parent is a **root span**. The block's return value comes back
+out; a thrown error goes back out too, after being recorded.
+
+### Span scope
+
+What the block receives: the handle on the span that is open. Through it you
+name the span, add attributes and events, set or read the status, or record a
+failure you caught and chose not to rethrow.
+
+```ts
+await span('charge', {}, async (scope) => {
+  scope.name = `charge ${provider}`;      // renamed once the provider is known
+  scope.event('gateway.called', { attempt: 1 });
+  try {
+    await gateway.charge(card);
+  } catch (failure) {
+    scope.fail(failure);                   // status → error, exception recorded
+    await queue.retryLater(card);          // …and handled, not rethrown
+  }
+});
+```
+
+### Span kind
+
+What role the span played: `internal` (the default), `server` (it answered a
+request), `client` (it made one), `producer` and `consumer` (it sent or received
+a message). A backend draws the arrows between services from `server` and
+`client`.
+
+```ts
+await span('GET /orders/:id', { kind: 'server' }, handle);
+await span('GET inventory', { kind: 'client' }, () => fetch(url));
+```
+
+### Span status
+
+How the work ended: `ok`, `error`, or `cancelled`. A thrown error makes it
+`error`; an `AbortError` or `TimeoutError` makes it `cancelled`, because a
+shutdown or a timeout is not a bug somebody should be paged for.
+
+```ts
+await span('import', {}, async () => {
+  throw new Error('bad row');              // status: 'error', rethrown
+}).catch(() => {});
+
+await span('poll', {}, async () => {
+  await fetch(url, { signal: AbortSignal.timeout(10) });  // status: 'cancelled'
+}).catch(() => {});
+```
+
+### Span event
+
+Something that happened at an instant during a span, with its own attributes —
+a retry, a cache miss, a state change. Cheaper than a child span, and attached
+to the work it describes.
+
+```ts
+await span('charge', {}, async (scope) => {
+  scope.event('retry', { attempt: 2, reason: 'timeout' });
+});
+```
+
+### Span context
+
+A span's place in a trace, as it travels: the trace id, the span id, whether the
+trace is **sampled**, and whether it arrived from another process (**remote**).
+It is what a `traceparent` header carries, and what a log attaches.
+
+```ts
+currentSpan();
+// → { traceId: '4bf92f35…0e4736', spanId: '00f067aa0ba902b7', sampled: true, remote: false }
+```
+
+Ids are lowercase hex — 32 characters for a trace, 16 for a span — and typed as
+`TraceId` and `SpanId`, so the compiler refuses one where the other belongs.
+
+### Detached context
+
+What a span carries when **no telemetry is installed**: all-zero ids, not
+sampled. The block runs, nothing is emitted. It is what lets a library use
+`span()` inside an application that has never heard of this package.
+
+```ts
+await span('work', {}, async (scope) => {
+  isDetached(scope.context);   // true when nothing is installed
+});
+```
+
+### Propagation and `traceparent`
+
+How a trace crosses a process boundary: the caller writes its span context into
+a W3C `traceparent` header, and the callee **continues** the trace from it
+instead of starting a new one.
+
+```ts
+// the caller
+await fetch(url, { headers: { traceparent: currentTraceparent() ?? '' } });
+
+// the callee
+await continuing(request.headers.get('traceparent'), 'GET /orders', async () => {
+  // same traceId as the caller; this span's parent is the caller's span
+});
+```
+
+`@nxgt/telemetry-httpyz` and `@nxgt/telemetry-hono` do both halves for you.
+
+### Context
+
+Where the current span, the current telemetry and the inherited attributes
+live, so that nothing has to be passed by hand. It is an `AsyncLocalStorage`:
+it follows your work through every `await`, timer and promise, and two
+concurrent requests never see each other's.
+
+```ts
+await span('request', {}, async () => {
+  await Promise.all([a(), b()]);   // both see 'request' as their current span
+});
+currentSpan();                     // undefined: out here, nothing is open
+```
+
+### Attributes
+
+Key–value pairs describing a signal, where a value is a **scalar or a list of
+scalars** — what a backend can filter and group by. Names follow OpenTelemetry's
+conventions where one exists (`http.route`, `db.system.name`).
+
+```ts
+span('charge', { attributes: { orderId: 'o-1', amount: 4200, retried: false } }, block);
+```
+
+### Attribute inheritance
+
+Attributes given to `span()` or `withAttributes()` are **inherited** by every log
+and span inside the block. Those set with `scope.attribute()` belong to that one
+span. When two names clash, the inner one wins.
+
+```ts
+await withAttributes({ tenant: 'acme' }, async () => {
+  await span('charge', { attributes: { orderId: 'o-1' } }, async (scope) => {
+    scope.attribute('provider', 'stripe');   // this span only
+    log.info('charged');                      // carries tenant and orderId
+  });
+});
+```
+
+### Logger and source
+
+A logger is named for the component that writes through it — its **source** —
+and every record it produces carries that name. Loggers are cheap and can be
+created at module level: they find the telemetry when they write, not when they
+are made.
+
+```ts
+const log = createLogger('CheckoutService');
+log.info('order stored', { orderId });
+```
+
+### Severity
+
+How much a log matters: `debug`, `info`, `warn`, `error`. There is no `trace`.
+The telemetry's **minimum** is the floor: below it a log is never built.
+
+```ts
+createTelemetry('checkout', { minimum: 'warn' });
+log.info('ignored');          // below the floor: not built, not emitted
+log.warn('kept');
+```
+
+### Log record
+
+What a log call produces: when, how severe, a name, the source, attributes, the
+span it was written in (if any) and the failure it is about (if any).
+
+```ts
+log.error('charge failed', new Error('card refused'), { orderId: 'o-1' });
+// → { type: 'log', severity: 'error', name: 'charge failed',
+//     source: 'CheckoutService', attributes: { orderId: 'o-1' },
+//     span: { traceId, spanId, … }, error: { type: 'Error', message: 'card refused', stackTrace } }
+```
+
+### Declared event
+
+A log whose fields are **declared by a schema**, so only what the schema names
+is written. It is how a log stops leaking the field someone adds to an object
+next quarter.
+
+```ts
+const Charged = event('checkout.charged', z.object({ orderId: z.string(), amount: z.number() }));
+
+log.info(Charged({ orderId: 'o-1', amount: 4200, card: '4242…' }));
+// → name 'checkout.charged', attributes { orderId: 'o-1', amount: 4200 } — no card
+```
+
+Any [Standard Schema](https://standardschema.dev) works. A value the schema
+refuses is still logged, marked `telemetry.event.invalid`, never thrown.
+
+### Error info
+
+A failure flattened into something that can cross a wire: its type (the class
+name), its message, and its stack as text. Logs and spans carry it the same way,
+and OTLP turns it into `exception.type`, `exception.message` and
+`exception.stacktrace`.
+
+```ts
+class ChargeRefused extends Error {}
+errorInfo(new ChargeRefused('insufficient funds'));
+// → { type: 'ChargeRefused', message: 'insufficient funds', stackTrace: '…' }
+```
+
+### Sampler and sampling
+
+The decision to **keep a trace or not**, taken once by the root span and carried
+by every child and every `traceparent`. It is a function of the trace id, so two
+services at the same ratio agree. Logs are never sampled.
+
+```ts
+createTelemetry('checkout', { sampler: ratioSampler(0.1) });   // keep a tenth of traces
+
+const custom: Sampler = { sample: (traceId) => traceId.endsWith('0') };
+```
+
+### Exporter
+
+Where signals go: one object with `export(resource, batch)` and an optional
+`close()`. It is called by one consumer at a time, in order, and a failure in it
+never reaches the code that wrote the signal.
+
+```ts
+const counting: Exporter = {
+  export(resource, batch) {
+    console.log(`${resource.service}: ${batch.length} signals`);
+  },
+};
+createTelemetry('checkout', { exporters: [counting, consoleExporter()] });
+```
+
+Built in: `consoleExporter`, `jsonLinesExporter`, `fileExporter`. Elsewhere:
+`otlpExporter` (`@nxgt/telemetry-otlp`), `mongoExporter`
+(`@nxgt/telemetry-mongo`), `winstonExporter` (`@nxgt/telemetry-logging`).
+
+### Pipeline and batch
+
+Between the code that writes a signal and the exporters: a queue that **never
+blocks and never throws** at the writer. Signals are grouped into a **batch**,
+flushed when `batch` signals are waiting or `linger` ms after the first one, and
+drained by `close()`.
+
+```ts
+createTelemetry('checkout', {
+  batch: 512,          // flush at this many
+  linger: 1_000,       // …or this long after the first
+  drainTimeout: 10_000,
+  onExportError: (failure) => console.error('export failed', failure),
+  exporters: [otlpExporter({ endpoint })],
+});
+```
+
 ## The root
 
 ```ts
