@@ -9,6 +9,7 @@ import {
 } from '../telemetry/telemetry';
 import { parseTraceparent, randomSpanId, randomTraceId } from '../trace/ids';
 import { alwaysSample, neverSample, ratioSampler } from '../trace/sampler';
+import type { SpanScope } from './scope';
 import { continuing, span } from './span';
 
 afterEach(() => uninstallTelemetry());
@@ -244,6 +245,131 @@ describe('failure', () => {
 		);
 
 		expect((await spans())[0]?.status).toBe('error');
+	});
+});
+
+/**
+ * The two halves of the contract, together: a span never swallows, and the
+ * record it emits says what happened. A helper that raised while recording
+ * would replace the caller's failure *and* leave the span reading `ok` — work
+ * that failed, recorded as work that succeeded.
+ */
+describe('a failure that is hostile to read', () => {
+	test('is rethrown as it arrived, and the span still says error', async () => {
+		const { telemetry, spans } = collecting();
+		const hostile = new Error('the real failure');
+		Object.defineProperty(hostile, 'name', {
+			get() {
+				throw new Error('name getter');
+			},
+		});
+
+		await expect(
+			within(telemetry, () =>
+				span('charge', async () => {
+					throw hostile;
+				}),
+			),
+		).rejects.toBe(hostile);
+
+		expect((await spans())[0]?.status).toBe('error');
+	});
+
+	test('a revoked Proxy is the same', async () => {
+		const { telemetry, spans } = collecting();
+		const { proxy, revoke } = Proxy.revocable({}, {});
+		revoke();
+
+		await expect(
+			within(telemetry, () =>
+				span('charge', async () => {
+					throw proxy;
+				}),
+			),
+		).rejects.toBe(proxy);
+
+		expect((await spans())[0]?.status).toBe('error');
+	});
+});
+
+describe('an attribute that is hostile to read', () => {
+	test('does not stop the block from running', async () => {
+		const { telemetry, spans } = collecting();
+		let ran = false;
+
+		await within(telemetry, () =>
+			span(
+				'charge',
+				{
+					attributes: {
+						get computed(): string {
+							throw new Error('getter');
+						},
+					},
+				},
+				async (scope) => {
+					ran = true;
+					scope.attributes({
+						get other(): string {
+							throw new Error('getter');
+						},
+					});
+					scope.event('gateway.called', {
+						get third(): string {
+							throw new Error('getter');
+						},
+					});
+				},
+			),
+		);
+
+		expect(ran).toBe(true);
+		expect((await spans())[0]?.attributes.computed).toBe('[unreadable]');
+	});
+});
+
+/**
+ * A scope can outlive its block — held by a callback, or by a caller that kept
+ * it. What it writes then must not reach a record already sitting in the
+ * pipeline buffer.
+ */
+describe('the emitted record', () => {
+	test('is detached from the scope that produced it', async () => {
+		const { telemetry, spans } = collecting();
+		let kept: SpanScope | undefined;
+
+		await within(telemetry, () =>
+			span('charge', async (scope) => {
+				scope.attribute('during', true);
+				scope.event('during');
+				kept = scope;
+			}),
+		);
+
+		kept?.attribute('after', true);
+		kept?.event('after');
+
+		const [record] = await spans();
+		expect(record?.attributes).toEqual({ during: true });
+		expect(record?.events.map((e) => e.name)).toEqual(['during']);
+	});
+
+	test('is detached from the inherited attributes too', async () => {
+		const { telemetry, spans } = collecting();
+		let kept: SpanScope | undefined;
+
+		await within(telemetry, () =>
+			span('outer', { attributes: { tenant: 'acme' } }, async () =>
+				span('inner', async (scope) => {
+					kept = scope;
+				}),
+			),
+		);
+
+		kept?.attribute('after', true);
+
+		const inner = (await spans()).find((r) => r.name === 'inner');
+		expect(inner?.attributes).toEqual({ tenant: 'acme' });
 	});
 });
 

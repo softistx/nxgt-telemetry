@@ -128,10 +128,28 @@ function split(
 
 function isFields(value: unknown): value is Fields {
 	if (typeof value !== 'object' || value === null) return false;
-	if (value instanceof Error || Array.isArray(value)) return false;
 
-	const prototype = Object.getPrototypeOf(value);
-	return prototype === Object.prototype || prototype === null;
+	try {
+		if (value instanceof Error || Array.isArray(value)) return false;
+
+		const prototype = Object.getPrototypeOf(value);
+		if (prototype === null || prototype === Object.prototype) return true;
+
+		// Another realm's `Object.prototype` is not ours, but it is still the
+		// root of its own chain and its constructor is still called `Object`.
+		// Without this a plain object from a worker reads as a failure, and its
+		// fields stop being indexable.
+		return (
+			Object.getPrototypeOf(prototype) === null &&
+			(prototype as { constructor?: { name?: unknown } }).constructor?.name ===
+				'Object'
+		);
+	} catch {
+		// A `getPrototypeOf` trap that throws, or a revoked Proxy. Reading it as
+		// a failure is the safe answer: it is recorded either way, and nothing
+		// here is allowed to raise.
+		return false;
+	}
 }
 
 /**

@@ -360,6 +360,13 @@ somebody wrote it.
 - **`ratioSampler` throws on a bad ratio**, at construction. That is the one
   place in this library that refuses an argument, and it is deliberate: it is
   not on the path that writes a signal.
+- **`exception.type` is the class name, not `error.name`.**
+  `class ChargeRefused extends Error {}` is recorded as `ChargeRefused`, because
+  `name` is inherited unless a subclass assigns it and the type is what a
+  dashboard groups by. An assigned `name` still wins.
+- **A detached scope's `traceparent()` is `00-0…0-0…0-00`**, which this
+  library's own parser rejects. That happens only when nothing is installed, and
+  `isDetached(scope.context)` is the guard before injecting a header.
 - **A log is never sampled, a span is.** A span of an unsampled trace is not
   emitted at all — the block still runs — while its logs come out as usual,
   carrying the `traceId`. Do not read "no span" as "nothing happened".

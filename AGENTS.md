@@ -129,9 +129,12 @@ and the READMEs say so.
 core by `workspace:^` and imports it by its published name; there is no tsconfig
 `paths` to it and no relative import into it.
 
-- **The core's `dependencies` is empty and stays empty.** `@standard-schema/spec`
-  is a `devDependency`: it is a contract of types, with no runtime. Anything that
-  would need a real dependency is an integration package, not the core.
+- **The core's `dependencies` is empty and stays empty**, and so is its
+  `devDependencies` apart from `@types/bun`. [Standard
+  Schema](https://standardschema.dev) is a contract of types with no runtime, so
+  it is **declared in the source** (`src/logger/standard-schema.ts`), the way
+  `@nxgt/httpyz` declares it, rather than depended on. Anything that would need a
+  real dependency is an integration package, not the core.
 - **An integration's host is an *optional* peer** — `hono`, `@nxgt/httpyz`,
   `mongodb`, `winston` — pinned exactly as a devDependency so the specs run
   against a known version. A **required** peer on a package a consumer did not
@@ -321,7 +324,7 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **158 pass, 0 fail**: `@nxgt/telemetry` 153, scripts 5. It
+`bun run test` is **193 pass, 0 fail**: `@nxgt/telemetry` 188, scripts 5. It
 runs one process per package, then the scripts' specs. Treat any failure as
 yours.
 

@@ -1,54 +1,25 @@
 import {
-	type Attributes,
-	type AttributeValue,
 	attributesOf,
-	coerceAttribute,
 	EMPTY_ATTRIBUTES,
 	mergeAttributes,
 } from '../attributes/attributes';
 import { currentContext, runWithContext } from '../context/current';
-import { isTelemetryEvent, type TelemetryEvent } from '../logger/event';
-import { errorInfo, isAbort } from '../model/error';
-import type {
-	ErrorInfo,
-	SpanEvent,
-	SpanKind,
-	SpanRecord,
-	SpanStatus,
-} from '../model/signal';
+import type { SpanKind } from '../model/signal';
 import { installedTelemetry, type Telemetry } from '../telemetry/telemetry';
 import {
 	DETACHED_SPAN_CONTEXT,
 	parseTraceparent,
 	randomSpanId,
 	randomTraceId,
-	renderTraceparent,
 	type SpanContext,
-	type SpanId,
 	type TraceId,
 } from '../trace/ids';
+import { Span, type SpanScope } from './scope';
 
 export interface SpanOptions {
 	/** Inherited by every log and span inside this one. */
 	readonly attributes?: Readonly<Record<string, unknown>>;
 	readonly kind?: SpanKind;
-}
-
-/** The open span, from inside it. Everything here is synchronous. */
-export interface SpanScope {
-	readonly context: SpanContext;
-	readonly traceId: TraceId;
-	readonly spanId: SpanId;
-	/** Writable: a server span is named after its route, which routing knows last. */
-	name: string;
-	/** Writable, for work that failed without throwing. An exception overrides it. */
-	status: SpanStatus;
-	/** The header an outgoing call should carry to continue this trace. */
-	traceparent(): string;
-	attribute(name: string, value: unknown): void;
-	attributes(record: Readonly<Record<string, unknown>>): void;
-	event(name: string, attributes?: Readonly<Record<string, unknown>>): void;
-	event(event: TelemetryEvent): void;
 }
 
 export type SpanBlock<T> = (scope: SpanScope) => T | Promise<T>;
@@ -72,8 +43,8 @@ export function span<T>(
  * must work inside an application that has never heard of this one. With none,
  * the scope carries a detached context and nothing is emitted.
  *
- * **It never swallows.** A failure marks the span and is rethrown; a span
- * observes, it does not handle.
+ * **It never swallows.** A failure marks the span and is rethrown, exactly as
+ * it arrived; a span observes, it does not handle.
  */
 export function span<T>(
 	name: string,
@@ -153,7 +124,13 @@ async function open<T>(
 			() => block(scope),
 		);
 	} catch (failure) {
-		scope.fail(failure, telemetry.stackTraces);
+		// Recording must never become the reason the caller's failure is lost,
+		// so nothing in here may raise in its place.
+		try {
+			scope.fail(failure, telemetry.stackTraces);
+		} catch {
+			scope.status = 'error';
+		}
 		throw failure;
 	} finally {
 		if (context.sampled) {
@@ -161,83 +138,6 @@ async function open<T>(
 				scope.record(startedAt, Date.now(), parentSpan?.spanId, inherited),
 			);
 		}
-	}
-}
-
-/** The open span. Every method is synchronous, and none of them can throw. */
-class Span implements SpanScope {
-	name: string;
-	status: SpanStatus = 'ok';
-	readonly context: SpanContext;
-
-	private readonly kind: SpanKind;
-	private readonly own: Record<string, AttributeValue> = {};
-	private readonly happened: SpanEvent[] = [];
-	private error: ErrorInfo | undefined;
-
-	constructor(context: SpanContext, name: string, kind: SpanKind) {
-		this.context = context;
-		this.name = name;
-		this.kind = kind;
-	}
-
-	get traceId(): TraceId {
-		return this.context.traceId;
-	}
-
-	get spanId(): SpanId {
-		return this.context.spanId;
-	}
-
-	traceparent(): string {
-		return renderTraceparent(this.context);
-	}
-
-	attribute(name: string, value: unknown): void {
-		this.own[name] = coerceAttribute(value);
-	}
-
-	attributes(record: Readonly<Record<string, unknown>>): void {
-		Object.assign(this.own, attributesOf(record));
-	}
-
-	event(
-		input: string | TelemetryEvent,
-		attributes?: Readonly<Record<string, unknown>>,
-	): void {
-		const declared = isTelemetryEvent(input);
-		this.happened.push({
-			name: declared ? input.name : input,
-			at: Date.now(),
-			attributes: declared ? input.attributes : attributesOf(attributes),
-		});
-	}
-
-	fail(failure: unknown, stackTraces: boolean): void {
-		const cancelled = isAbort(failure);
-		this.status = cancelled ? 'cancelled' : 'error';
-		this.error = errorInfo(failure, !cancelled && stackTraces);
-	}
-
-	record(
-		startedAt: number,
-		endedAt: number,
-		parent: SpanId | undefined,
-		inherited: Attributes,
-	): SpanRecord {
-		return {
-			type: 'span',
-			name: this.name,
-			context: this.context,
-			...(parent === undefined ? {} : { parent }),
-			kind: this.kind,
-			startedAt,
-			endedAt,
-			status: this.status,
-			attributes: mergeAttributes(inherited, this.own),
-			events: [...this.happened],
-			...(this.error === undefined ? {} : { error: this.error }),
-		};
 	}
 }
 

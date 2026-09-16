@@ -5,6 +5,7 @@ import {
 	EMPTY_ATTRIBUTES,
 	isEmptyAttributes,
 	mergeAttributes,
+	UNREADABLE,
 } from './attributes';
 
 /**
@@ -62,6 +63,75 @@ describe('coerceAttribute', () => {
 			},
 		};
 		expect(coerceAttribute(hostile)).toBe('[object Object]');
+	});
+});
+
+/**
+ * Decision 3: writing a signal never fails. Everything below reaches
+ * application code — a getter, an `ownKeys` trap, a `toString` — from a path
+ * that a `catch` block calls.
+ */
+describe('a hostile value', () => {
+	test('a getter that throws reads as unreadable, not as an exception', () => {
+		const hostile = {
+			get computed(): string {
+				throw new Error('getter');
+			},
+		};
+
+		expect(() => attributesOf(hostile)).not.toThrow();
+		expect(attributesOf(hostile)).toEqual({ computed: UNREADABLE });
+	});
+
+	test('an ownKeys trap that throws gives up on the whole record', () => {
+		const hostile = new Proxy(
+			{},
+			{
+				ownKeys() {
+					throw new Error('ownKeys');
+				},
+			},
+		);
+
+		expect(() => attributesOf(hostile)).not.toThrow();
+		expect(attributesOf(hostile)).toBe(EMPTY_ATTRIBUTES);
+	});
+
+	test('a revoked Proxy does not escape', () => {
+		const { proxy, revoke } = Proxy.revocable({ a: 1 }, {});
+		revoke();
+
+		expect(() => attributesOf(proxy)).not.toThrow();
+		expect(() => coerceAttribute(proxy)).not.toThrow();
+	});
+
+	test('a toString that throws does not escape', () => {
+		const hostile = {
+			toString() {
+				throw new Error('toString');
+			},
+			toJSON() {
+				throw new Error('toJSON');
+			},
+		};
+
+		expect(coerceAttribute(hostile)).toBe(UNREADABLE);
+	});
+
+	test('one unreadable key does not cost the others', () => {
+		const mixed = {
+			orderId: 'o-1',
+			get computed(): string {
+				throw new Error('getter');
+			},
+			amount: 4200,
+		};
+
+		expect(attributesOf(mixed)).toEqual({
+			orderId: 'o-1',
+			computed: UNREADABLE,
+			amount: 4200,
+		});
 	});
 });
 

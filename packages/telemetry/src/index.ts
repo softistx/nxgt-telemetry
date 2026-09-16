@@ -8,6 +8,7 @@ export * from './logger/logger';
 export type { StandardSchemaV1 } from './logger/standard-schema';
 export * from './model/error';
 export * from './model/signal';
+export * from './span/scope';
 export * from './span/span';
 export * from './telemetry/telemetry';
 export * from './trace/ids';

@@ -21,6 +21,13 @@ reaches a log. Nothing on this path can fail: no telemetry installed, a schema
 that refuses the input or answers asynchronously, a lazy message that throws —
 the line still comes out, marked, or is dropped in silence.
 
+Nothing on either path can be made to throw by the value it is given. A getter
+that raises, an `ownKeys` or `getPrototypeOf` trap, a revoked Proxy, an `Error`
+subclass whose `name` getter throws: each is read defensively, because the value
+comes out of a `catch` block. A span records its failure and rethrows **that**
+failure, never one of its own. `exception.type` is the class name, and an
+`Error` from another realm keeps its message.
+
 Logs are not sampled. A log of an unsampled trace still comes out, carrying its
 `traceId`, because a log dropped because its trace was not kept is a log missing
 at precisely the moment somebody is reading logs.

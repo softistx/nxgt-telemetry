@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { runInNewContext } from 'node:vm';
 import { withAttributes, withTelemetry } from '../context/current';
 import type { Exporter } from '../export/exporter';
 import type { LogRecord, Signal } from '../model/signal';
@@ -166,6 +167,176 @@ describe('a failure on a line', () => {
 		withTelemetry(telemetry, () => log.warn('odd', 'just a string'));
 
 		expect((await logs())[0]?.error?.type).toBe('string');
+	});
+});
+
+/**
+ * Decision 3, on the path that matters most: the value handed to `log.error`
+ * comes out of a `catch`, so it comes from code nobody here controls. Not one
+ * of these may throw, and the line must still come out.
+ */
+describe('a hostile failure or bag of fields', () => {
+	const hostile = () => {
+		const failure = new Error('the real failure');
+		Object.defineProperty(failure, 'name', {
+			get() {
+				throw new Error('name getter');
+			},
+		});
+		return failure;
+	};
+
+	test('a failure whose name, message or stack getter throws still logs', async () => {
+		const { telemetry, logs } = collecting();
+		const message = new Error('boom');
+		Object.defineProperty(message, 'message', {
+			get() {
+				throw new Error('message getter');
+			},
+		});
+		const stack = new Error('boom');
+		Object.defineProperty(stack, 'stack', {
+			get() {
+				throw new Error('stack getter');
+			},
+		});
+
+		withTelemetry(telemetry, () => {
+			expect(() => log.error('one', hostile())).not.toThrow();
+			expect(() => log.error('two', message)).not.toThrow();
+			expect(() => log.error('three', stack)).not.toThrow();
+		});
+
+		expect((await logs()).map((r) => r.name)).toEqual(['one', 'two', 'three']);
+	});
+
+	test('a revoked Proxy as the failure still logs', async () => {
+		const { telemetry, logs } = collecting();
+		const { proxy, revoke } = Proxy.revocable({}, {});
+		revoke();
+
+		withTelemetry(telemetry, () => {
+			expect(() => log.error('charge failed', proxy)).not.toThrow();
+		});
+
+		expect(await logs()).toHaveLength(1);
+	});
+
+	test('fields whose getter throws still log, marked unreadable', async () => {
+		const { telemetry, logs } = collecting();
+
+		withTelemetry(telemetry, () => {
+			expect(() =>
+				log.info('charged', {
+					orderId: 'o-1',
+					get computed(): string {
+						throw new Error('getter');
+					},
+				}),
+			).not.toThrow();
+		});
+
+		expect((await logs())[0]?.attributes).toEqual({
+			orderId: 'o-1',
+			computed: '[unreadable]',
+		});
+	});
+
+	test('a Proxy whose ownKeys throws still logs', async () => {
+		const { telemetry, logs } = collecting();
+		const trapped = new Proxy(
+			{},
+			{
+				ownKeys() {
+					throw new Error('ownKeys');
+				},
+			},
+		);
+
+		withTelemetry(telemetry, () => {
+			expect(() => log.info('charged', trapped)).not.toThrow();
+		});
+
+		expect(await logs()).toHaveLength(1);
+	});
+
+	test('a lazy message that throws a hostile failure still logs', async () => {
+		const { telemetry, logs } = collecting();
+
+		withTelemetry(telemetry, () => {
+			expect(() =>
+				log.info(() => {
+					throw hostile();
+				}),
+			).not.toThrow();
+		});
+
+		expect((await logs())[0]?.name).toBe('[message failed to build]');
+	});
+});
+
+/**
+ * `warn(message, x)` and `warn(message, failure, attributes)` are one call at
+ * runtime, and `x` decides. A plain object from a worker is still a plain
+ * object: reading it as a failure would make its fields unindexable at the one
+ * moment somebody is filtering on them.
+ */
+describe('telling a failure from a bag of fields', () => {
+	test('a class instance and a Date are failures; a plain object is fields', async () => {
+		const { telemetry, logs } = collecting();
+		class Refused {}
+
+		withTelemetry(telemetry, () => {
+			log.warn('a', new Refused());
+			log.warn('b', new Date(0));
+			log.warn('c', { code: 51 });
+			log.warn('d', Object.create(null));
+		});
+
+		const [a, b, c, d] = await logs();
+		expect(a?.error?.type).toBe('Refused');
+		expect(b?.error?.type).toBe('Date');
+		expect(c?.error).toBeUndefined();
+		expect(c?.attributes).toEqual({ code: 51 });
+		expect(d?.error).toBeUndefined();
+	});
+
+	test('a plain object from another realm is fields, not a failure', async () => {
+		const { telemetry, logs } = collecting();
+		const alien = runInNewContext('({ code: 51 })') as Record<string, unknown>;
+
+		withTelemetry(telemetry, () => log.warn('refused', alien));
+
+		const [record] = await logs();
+		expect(record?.error).toBeUndefined();
+		expect(record?.attributes).toEqual({ code: 51 });
+	});
+
+	test('an Error from another realm is a failure, with its message', async () => {
+		const { telemetry, logs } = collecting();
+		const alien = runInNewContext('new Error("boom")') as Error;
+
+		withTelemetry(telemetry, () => log.error('charge failed', alien));
+
+		expect((await logs())[0]?.error?.message).toBe('boom');
+	});
+
+	test('a Proxy whose getPrototypeOf throws is read as a failure', async () => {
+		const { telemetry, logs } = collecting();
+		const trapped = new Proxy(
+			{},
+			{
+				getPrototypeOf() {
+					throw new Error('getPrototypeOf');
+				},
+			},
+		);
+
+		withTelemetry(telemetry, () => {
+			expect(() => log.warn('odd', trapped)).not.toThrow();
+		});
+
+		expect((await logs())[0]?.error).toBeDefined();
 	});
 });
 
