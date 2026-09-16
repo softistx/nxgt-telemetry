@@ -30,6 +30,23 @@ export interface SpanScope {
 	name: string;
 	/** Writable, for work that failed without throwing. An exception overrides it. */
 	status: SpanStatus;
+	/**
+	 * Record a failure the span will not see thrown.
+	 *
+	 * A block that throws is recorded without this. It exists for the frameworks
+	 * that **catch** — Hono turns a handler's exception into a 500 and hands the
+	 * middleware a normal return with the failure on the side — where the only
+	 * thing that knows a request failed is the framework's own field. Without
+	 * it, that span carries a status and no `exception.type`, which is the one
+	 * thing a trace is read for.
+	 *
+	 * **The first failure wins**, and stays won: a framework that catches and
+	 * then rethrows its own wrapper cannot replace the one nearest the cause.
+	 * The cost is that an early `fail()` for something the block went on to
+	 * recover from hides a later, unrelated exception — so call it for the
+	 * failure the span is about, not for every one it sees.
+	 */
+	fail(failure: unknown): void;
 	/** The header an outgoing call should carry to continue this trace. */
 	traceparent(): string;
 	attribute(name: string, value: unknown): void;
@@ -51,14 +68,21 @@ export class Span implements SpanScope {
 	readonly context: SpanContext;
 
 	private readonly kind: SpanKind;
+	private readonly stackTraces: boolean;
 	private readonly own: Record<string, AttributeValue> = {};
 	private readonly happened: SpanEvent[] = [];
 	private error: ErrorInfo | undefined;
 
-	constructor(context: SpanContext, name: string, kind: SpanKind) {
+	constructor(
+		context: SpanContext,
+		name: string,
+		kind: SpanKind,
+		stackTraces = true,
+	) {
 		this.context = context;
 		this.name = name;
 		this.kind = kind;
+		this.stackTraces = stackTraces;
 	}
 
 	get traceId(): TraceId {
@@ -93,10 +117,14 @@ export class Span implements SpanScope {
 		});
 	}
 
-	fail(failure: unknown, stackTraces: boolean): void {
+	fail(failure: unknown): void {
+		// The first failure is the one nearest the cause; a framework that
+		// catches and then rethrows must not overwrite it with its own wrapper.
+		if (this.error !== undefined) return;
+
 		const cancelled = isAbort(failure);
 		this.status = cancelled ? 'cancelled' : 'error';
-		this.error = errorInfo(failure, !cancelled && stackTraces);
+		this.error = errorInfo(failure, !cancelled && this.stackTraces);
 	}
 
 	/**
