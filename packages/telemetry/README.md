@@ -71,6 +71,73 @@ exporter's `close` may be called while an `export` is still in flight.
 | `onExportError` | `console.error` | a failing exporter is reported here |
 | `exporters` | `[]` | in order; a batch reaches them one after the other |
 
+## Spans
+
+```ts
+import { span, continuing } from '@nxgt/telemetry';
+
+await span('charge', { attributes: { orderId } }, async (scope) => {
+  scope.event('gateway.called', { attempt });
+  await payments.charge(card);
+});
+
+// on the way in, continuing whatever the caller started
+await continuing(request.headers.get('traceparent'), 'GET /orders', async (scope) => {
+  scope.name = `GET ${route}`;            // routing knows the template last
+  scope.attribute('http.route', route);
+});
+```
+
+The block runs whether or not a telemetry is installed: a library that traces
+must work inside an application that has never heard of this one. With none, the
+scope carries a detached context and nothing is emitted.
+
+**A span never swallows.** A failure marks it `error` — or `cancelled`, for an
+`AbortError` or a `TimeoutError`, because a shutdown and a timeout are not
+failures — records the exception, and rethrows. A span observes; it does not
+handle.
+
+Attributes given to `span()` are inherited by every log and span inside it;
+`scope.attribute()` belongs to that span alone. Both appear on the span's own
+record.
+
+`continuing` takes a header from a stranger, so an unusable one is not an error:
+it starts a fresh trace, exactly as `span` would.
+
+## Logging
+
+```ts
+import { createLogger, event } from '@nxgt/telemetry';
+import { z } from 'zod';
+
+const Charged = event('checkout.charged', z.object({ orderId: z.string(), amount: z.number() }));
+const log = createLogger('CheckoutService');
+
+log.info(Charged({ orderId, amount }));          // a declared event
+log.warn('charge refused', { orderId, code });   // ad hoc, for what has no type yet
+log.debug(() => `state: ${expensive()}`);        // built only if debug is on
+log.error('charge failed', failure, { orderId });
+```
+
+A line written inside a span carries that span's `traceId` and `spanId` without
+being told, and the attributes the span and `withAttributes` put in scope.
+
+**Declaring an event is the point.** Logging an object as it is logs the field
+added next quarter — the card number included — and nobody finds out, because a
+log that says too much still looks like a working log. The schema is the
+declaration, and what it returns is what is emitted: an object schema's unknown
+keys are gone. Any [Standard Schema](https://standardschema.dev) will do — Zod,
+Valibot, ArkType — and none of them is a dependency here.
+
+**Nothing on this path can fail.** No telemetry installed, a schema that refuses
+the input, a schema that answers asynchronously, a lazy message that throws: the
+line still comes out, marked, or is dropped in silence. `log.info` is a total,
+synchronous function, callable from a constructor or from a `catch`.
+
+The lazy form is `debug` and `info` only, and the failure form is `warn` and
+`error` only — at those levels a message is always built, so a thunk would hide
+only the cost of building it.
+
 ## Context
 
 ```ts
@@ -216,6 +283,25 @@ somebody wrote it.
 | `consoleExporter(options?)` | one line per signal; `write` and `stackTraces` |
 | `PipelineOptions` | what a `Telemetry` configures its queue with |
 
+### Spans
+
+| | |
+| --- | --- |
+| `span(name, options?, block)` | opens one. `options` is `{ attributes?, kind? }`, kind `internal` by default |
+| `continuing(traceparent, name, options?, block)` | the same, continuing an inbound trace. Kind `server` by default |
+| `SpanScope` | `context`, `traceId`, `spanId`, writable `name` and `status`, `traceparent()`, `attribute()`, `attributes()`, `event()` |
+| `SpanOptions`, `SpanBlock` | |
+
+### Logging
+
+| | |
+| --- | --- |
+| `createLogger(source)` | `source` becomes the OTLP instrumentation scope |
+| `Logger` | `enabled(severity)`, `debug`, `info`, `warn`, `error` |
+| `event(name, schema?)` | declares an event type; the result is called with its fields |
+| `TelemetryEvent`, `isTelemetryEvent(value)`, `INVALID_EVENT_ATTRIBUTE` | |
+| `errorInfo(failure, stackTraces?)`, `isAbort(failure)` | how a thrown value is flattened, and what counts as cancelled |
+
 ### Trace identity
 
 | | |
@@ -274,6 +360,19 @@ somebody wrote it.
 - **`ratioSampler` throws on a bad ratio**, at construction. That is the one
   place in this library that refuses an argument, and it is deliberate: it is
   not on the path that writes a signal.
+- **`exception.type` is the class name, not `error.name`.**
+  `class ChargeRefused extends Error {}` is recorded as `ChargeRefused`, because
+  `name` is inherited unless a subclass assigns it and the type is what a
+  dashboard groups by. An assigned `name` still wins.
+- **A detached scope's `traceparent()` is `00-0…0-0…0-00`**, which this
+  library's own parser rejects. That happens only when nothing is installed, and
+  `isDetached(scope.context)` is the guard before injecting a header.
+- **A log is never sampled, a span is.** A span of an unsampled trace is not
+  emitted at all — the block still runs — while its logs come out as usual,
+  carrying the `traceId`. Do not read "no span" as "nothing happened".
+- **`log.warn(message, x)` reads `x` as a failure unless it is a plain object.**
+  An `Error`, a string, an array or a class instance is the failure; `{ code:
+  51 }` is attributes. Pass both explicitly when it matters.
 - **`close()` has to be awaited**, and a `process.exit()` before it resolves
   loses the last batch. Nothing can block the event loop to save you from that.
 - **The queue is unbounded.** An application that outruns its collector grows an
