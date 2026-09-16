@@ -241,10 +241,22 @@ key in `exports`.
 - **A build that exits 0 is not evidence the artifact loads.**
   `bun run verify:artifacts` packs every package, installs the tarballs as a
   consumer does, imports every subpath in `exports`, and rejects a manifest that
-  would break an install: a `link:` or `file:` in a field a consumer resolves, a
-  **required** peer on no registry, an exact pin on a sibling, or a package that
-  is not MIT or ships no `LICENSE`. `changeset:publish` runs it, so a release
-  cannot skip it.
+  would break an install: a `link:`, `file:` or unresolved `workspace:` in a field a consumer resolves, a
+  **required** peer on no registry, an exact pin on a sibling, a sibling range
+  other than the one its `workspace:` spec asks for, or a package that is not MIT or
+  ships no `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
+- **`bun pm pack` resolves `workspace:^` from `bun.lock`, not from the
+  sibling's `package.json`.** After `changeset version` bumps the manifests, the
+  lockfile still names the old versions until `bun install` runs — and
+  `bun install --frozen-lockfile` does not notice. That is how the five
+  integrations' 0.2.0 shipped asking for `@nxgt/telemetry@^0.1.0`, which in 0.x
+  excludes 0.2.0. `changeset:version` now runs `bun install` after versioning,
+  so the Version PR carries the refreshed lockfile, and `verify:artifacts`
+  requires each packed sibling range to be exactly what its `workspace:` spec
+  asks for, given the version beside it (`^0.2.0` beside a 0.2.1 core is stale
+  too, though 0.2.1 satisfies it) — its
+  `overrides` resolve siblings to their tarballs, which is why the install alone
+  could not see this.
 - **Build before typecheck and tests.** Every package's `exports` points at
   `./dist/*`, so on a clean checkout an integration resolves the core to nothing
   and typecheck reports a wall of phantom TS2307. CI builds first.
@@ -343,10 +355,10 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **528 pass, 0 fail**: `@nxgt/telemetry` 238,
+`bun run test` is **537 pass, 0 fail**: `@nxgt/telemetry` 238,
 `@nxgt/telemetry-otlp` 72, `@nxgt/telemetry-hono` 44,
 `@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67,
-`@nxgt/telemetry-logging` 62, scripts 5. It runs one process per package, then
+`@nxgt/telemetry-logging` 62, scripts 14. It runs one process per package, then
 the scripts' specs. Treat any failure as yours.
 
 `@nxgt/telemetry-mongo`'s specs run against a **real mongod**, downloaded once by
