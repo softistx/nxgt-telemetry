@@ -12,10 +12,17 @@ import type { SpanScope, Telemetry } from '@nxgt/telemetry';
  */
 declare module 'hono' {
 	interface ContextVariableMap {
-		/** The telemetry this request is being written to. */
-		telemetry: Telemetry;
-		/** The server span around this request. Absent when `traced` said no. */
-		span: SpanScope;
+		/**
+		 * The telemetry this request is being written to.
+		 *
+		 * **Optional**, and the compiler enforces it: a request `traced` refused
+		 * never had a middleware set it, so `c.get('telemetry')` is `undefined`
+		 * there. Type safety is what the compiler rejects, not what a README
+		 * claims.
+		 */
+		telemetry?: Telemetry;
+		/** The server span around this request. `undefined` when `traced` said no. */
+		span?: SpanScope;
 	}
 }
 

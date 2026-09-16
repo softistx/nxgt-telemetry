@@ -70,6 +70,17 @@ app.get('/typed', (c) => {
 	// @ts-expect-error — `span` is a scope, not a string
 	const wrong: string = c.get('span');
 	void wrong;
+
+	// A request `traced` refused never had either set, so the compiler makes
+	// the handler say so rather than the README.
+	// @ts-expect-error — it is absent whenever `traced` said no
+	const unguarded: SpanScope = c.get('span');
+	void unguarded;
+
+	// @ts-expect-error — so is the telemetry
+	const missing: Telemetry = c.get('telemetry');
+	void missing;
+
 	return c.text('ok');
 });
 

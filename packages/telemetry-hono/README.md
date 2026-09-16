@@ -65,8 +65,14 @@ server working; counting it as an error is what makes an error rate nobody can
 act on. Only `5xx` marks the span.
 
 **Hono catches.** A handler that throws does not reject `next()` — the router
-turns the exception into a `500` and leaves the failure on `c.error`. This
+turns the exception into a reply and leaves the failure on `c.error`. This
 middleware reads it, so the span carries `exception.type` and not just a status.
+
+**The reply decides the status, not the exception.** `HTTPException` is how a
+Hono application says `401`: it is what `basicAuth`, `bearerAuth`, `jwt` and the
+validators all throw. Letting a thrown failure mark the span would put every
+rejected login in the error rate, so a thrown `4xx` is still `ok` — with its
+`exception.type` recorded. An abort answered with a `500` stays `cancelled`.
 
 ## Options
 
@@ -84,7 +90,7 @@ The two shapes are exclusive, and the compiler says so: `service` beside an
 | `instance` | — | an existing telemetry. **Adopted, not closed** |
 | `traced` | everything | whether a request gets a span at all |
 | `spanName` | `"<METHOD> <path>"` | the name before routing |
-| `route` | `routePath(c, -1)` | the route template, after the handler |
+| `route` | the last matched handler | the route template, after the handler |
 
 `traced` is the health-check hook:
 
@@ -138,13 +144,22 @@ both are typed in a handler that imports nothing from here. `c.get('span')` is
 
 ## Traps
 
-- **`hono` is an optional peer, from `^4.8.0`.** The floor is where `hono/route`
-  arrived: `routePath(c, -1)` is how a middleware asks for the *handler's*
-  registered path, and `c.req.routePath` — which is deprecated — would answer
-  this middleware's own pattern.
-- **`routePath(c)` without the `-1` answers `*`.** From inside a middleware the
-  current route is the middleware's own pattern. That is why the default hook
-  passes `-1`, and why a `route` hook you write yourself should too.
+- **`hono` is an optional peer, from `^4.8.0`** — where `hono/route` arrived.
+  The route comes from `matchedRoutes(c)`, which has been the same one-argument
+  function ever since. `routePath(c, -1)` would have been the obvious call and
+  is the wrong one twice over: it only takes a second argument from hono 4.10,
+  so on 4.8 and 4.9 the `-1` is silently ignored, and even where it works it
+  answers the last matched *entry* — which is a middleware registered after the
+  routes.
+- **The route is the last matched handler, not the last matched route.** A
+  middleware takes `(c, next)` and a handler takes `(c)`, which is how hono's
+  own `matchedRoutes` example tells them apart and how this does. Taking the
+  last match instead would name the span after a middleware registered *after*
+  the routes, and would report `/v1/*` as the route of a 404 under a mount.
+- **A catch-all a handler owns is a route.** `app.get('/files/*')` reports
+  `http.route: '/files/*'`, because the application registered it. Only
+  `app.use`'s patterns are filtered out, and they are filtered out by being
+  middleware, not by their shape.
 - **The telemetry built from `service` is installed**, so a log written outside
   any request finds it. An adopted `instance` is left exactly as it was.
 - **`close()` is not called for you**, and it has to be awaited. A
@@ -152,7 +167,17 @@ both are typed in a handler that imports nothing from here. `c.get('span')` is
 - **A 4xx is `ok`, a 5xx is not.** If your API answers `200` with an error body,
   set `c.get('span')!.status = 'error'` yourself — nothing here can know.
 - **`traced: false` means no context either.** `c.get('span')` is `undefined`,
-  and a log written in that handler carries no trace id.
+  and a log written in that handler carries no trace id. Both context variables
+  are declared optional, so the compiler makes you say so.
+- **The span ends when the handler returns, not when the body finishes.** A
+  streamed reply is recorded as the milliseconds it took to *start*. What
+  happens after the `Response` is outside every middleware.
+- **A thrown non-`Error` is rethrown by hono rather than parked on `c.error`.**
+  The span still records it — the core does that — but there is no reply to read,
+  so it carries no `http.response.status_code`.
+- **A hook that throws costs its own answer and nothing else.** `traced` falls
+  back to tracing, `spanName` and `route` to the defaults. A predicate that
+  raises must not turn observability into an outage.
 
 ## License
 

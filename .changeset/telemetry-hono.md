@@ -29,5 +29,18 @@ nothing from this package. A telemetry handed in as `instance` is adopted, not
 closed; one built from `service` is installed and comes back on the middleware
 as `.telemetry`, for the shutdown hook the application owns.
 
-`hono` is an optional peer from `^4.8.0`, which is where `hono/route` arrived —
-`routePath(c, -1)` is how a middleware asks for the handler's registered path.
+A thrown `HTTPException` is how a Hono application says `401` — it is what
+`basicAuth`, `bearerAuth`, `jwt` and the validators throw — so the reply decides
+the status and the exception only decides what is recorded. A thrown 4xx stays
+`ok`, with its `exception.type`; an abort answered with a 500 stays `cancelled`.
+
+The route is the last matched **handler**, not the last matched route: a
+middleware takes `(c, next)` and a handler takes `(c)`, which is how hono's own
+`matchedRoutes` example tells them apart. Taking the last match would name the
+span after a middleware registered after the routes, and would report a mount's
+catch-all as the route of a 404.
+
+`hono` is an optional peer from `^4.8.0`, which is where `hono/route` arrived.
+`matchedRoutes(c)` has been the same one-argument function ever since;
+`routePath(c, -1)` would have been the obvious call and takes a second argument
+only from hono 4.10, so on 4.8 and 4.9 the `-1` is silently ignored.

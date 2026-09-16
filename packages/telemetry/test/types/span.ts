@@ -51,6 +51,18 @@ await span('charge', async (scope) => {
 
 	// @ts-expect-error — attributes takes a record, not a pair
 	scope.attributes('http.route', '/orders/{id}');
+
+	// A failure the block will not throw, for the frameworks that catch.
+	scope.fail(new Error('refused'));
+	// Anything can be thrown in JavaScript, so anything can be recorded.
+	scope.fail('refused');
+	scope.fail(undefined);
+
+	// @ts-expect-error — it records a failure, so it needs one
+	scope.fail();
+
+	// @ts-expect-error — the recorded failure is not readable back off the scope
+	void scope.error;
 });
 
 const log = createLogger('CheckoutService');

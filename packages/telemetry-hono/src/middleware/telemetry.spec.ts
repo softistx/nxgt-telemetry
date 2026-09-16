@@ -12,6 +12,7 @@ import {
 	type SpanRecord,
 } from '@nxgt/telemetry';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { telemetry } from './telemetry';
 
 let collected: Signal[] = [];
@@ -387,6 +388,299 @@ describe('the names it can be given', () => {
 
 		expect(spans()[0]?.name).toBe('GET /nothing-here');
 		expect(spans()[0]?.attributes['http.route']).toBeUndefined();
+	});
+});
+
+describe('a failure the framework caught', () => {
+	/**
+	 * `HTTPException` is how a Hono application says `401`: it is what
+	 * `basicAuth`, `bearerAuth`, `jwt` and the validators all throw. Letting a
+	 * thrown failure mark the span would put every rejected login in the error
+	 * rate — which is the outcome the 4xx rule exists to prevent.
+	 */
+	test('a thrown 4xx is ok, and still carries what was thrown', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', () => {
+			throw new HTTPException(401, { message: 'no token' });
+		});
+
+		const reply = await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(reply.status).toBe(401);
+		expect(spans()[0]?.status).toBe('ok');
+		expect(spans()[0]?.error?.type).toBe('HTTPException');
+		expect(spans()[0]?.attributes['http.response.status_code']).toBe(401);
+	});
+
+	test('a thrown 5xx is an error, as it always was', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', () => {
+			throw new HTTPException(503, { message: 'gateway down' });
+		});
+
+		await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.status).toBe('error');
+		expect(spans()[0]?.error?.type).toBe('HTTPException');
+	});
+
+	/**
+	 * A server span is precisely where a client disconnect or a request timeout
+	 * shows up, and the reason `cancelled` exists is that a dashboard counting
+	 * those as failures is a dashboard nobody trusts.
+	 */
+	test('an abort answered with a 500 stays cancelled', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', () => {
+			const aborted = new Error('the caller went away');
+			aborted.name = 'AbortError';
+			throw aborted;
+		});
+
+		await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.status).toBe('cancelled');
+		expect(spans()[0]?.error?.type).toBe('AbortError');
+	});
+
+	test('a middleware further down that throws marks the span too', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.use('*', async () => {
+			throw new Error('policy refused');
+		});
+		app.get('/orders/:id', (c) => c.text('unreachable'));
+
+		await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.status).toBe('error');
+		expect(spans()[0]?.error?.message).toBe('policy refused');
+	});
+
+	/** An `onError` that answers 200 has decided the request was fine. */
+	test('an onError that recovers leaves the span ok, with the failure recorded', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', () => {
+			throw new Error('retried elsewhere');
+		});
+		app.onError((_failure, c) => c.text('recovered'));
+
+		const reply = await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(reply.status).toBe(200);
+		expect(spans()[0]?.status).toBe('ok');
+		expect(spans()[0]?.error?.message).toBe('retried elsewhere');
+	});
+});
+
+describe('a hook that throws', () => {
+	/** A predicate that raises must not turn observability into an outage. */
+	test('traced falls back to tracing the request', async () => {
+		const tracing = telemetry({
+			instance: instance(),
+			traced: () => {
+				throw new Error('no');
+			},
+		});
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', (c) => c.text('ok'));
+
+		const reply = await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(reply.status).toBe(200);
+		expect(spans()).toHaveLength(1);
+	});
+
+	test('spanName falls back to the method and the path', async () => {
+		const tracing = telemetry({
+			instance: instance(),
+			spanName: () => {
+				throw new Error('no');
+			},
+			route: () => undefined,
+		});
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', (c) => c.text('ok'));
+
+		const reply = await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(reply.status).toBe(200);
+		expect(spans()[0]?.name).toBe('GET /orders/o-1');
+	});
+});
+
+describe('the routing shapes it has to name', () => {
+	test('a mounted sub-app reports the whole path', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		const orders = new Hono();
+		orders.get('/:id', (c) => c.text('ok'));
+		app.use('*', tracing);
+		app.route('/api/orders', orders);
+
+		await app.request('/api/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.name).toBe('GET /api/orders/:id');
+	});
+
+	test('a basePath is part of the route', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono().basePath('/v1');
+		app.use('*', tracing);
+		app.get('/orders/:id', (c) => c.text('ok'));
+
+		await app.request('/v1/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.name).toBe('GET /v1/orders/:id');
+	});
+
+	/**
+	 * The last matched route is a middleware registered after the routes; the
+	 * last matched *handler* is the route. Taking the former gives one
+	 * dashboard row per order id, which is the failure the rename exists to
+	 * prevent.
+	 */
+	test('a middleware registered after the routes does not become the route', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/orders/:id', (c) => c.text('ok'));
+		app.use('*', async (_c, next) => next());
+
+		await app.request('/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.name).toBe('GET /orders/:id');
+		expect(spans()[0]?.attributes['http.route']).toBe('/orders/:id');
+	});
+
+	/** A middleware that short-circuits still matched the route it guarded. */
+	test('an auth middleware that answers 401 still names the route', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.use('/api/*', async (c) => c.text('no token', 401));
+		app.get('/api/orders/:id', (c) => c.text('ok'));
+
+		const reply = await app.request('/api/orders/o-1');
+		await tracing.telemetry.close();
+
+		expect(reply.status).toBe(401);
+		expect(spans()[0]?.attributes['http.route']).toBe('/api/orders/:id');
+		expect(spans()[0]?.status).toBe('ok');
+	});
+
+	test('a 404 under a basePath reports no route, like any other 404', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono().basePath('/v1');
+		app.use('*', tracing);
+
+		await app.request('/v1/nothing-here');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.name).toBe('GET /v1/nothing-here');
+		expect(spans()[0]?.attributes['http.route']).toBeUndefined();
+	});
+
+	/** A catch-all somebody registered on purpose is a route. */
+	test('a wildcard route a handler owns is reported', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		app.use('*', tracing);
+		app.get('/files/*', (c) => c.text('ok'));
+
+		await app.request('/files/a/b.txt');
+		await tracing.telemetry.close();
+
+		expect(spans()[0]?.attributes['http.route']).toBe('/files/*');
+	});
+});
+
+describe('two requests at once', () => {
+	/**
+	 * The invariant the library exists for, at the only place a server can
+	 * break it: two requests in flight across an `await` must not see each
+	 * other's span. A thread-local — or a module variable — gets this wrong,
+	 * and gets it wrong silently, by joining two users into one trace.
+	 */
+	test('never see each other span, across an await', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		const seen = new Map<string, string | undefined>();
+
+		app.use('*', tracing);
+		app.get('/orders/:id', async (c) => {
+			const id = c.req.param('id');
+			const before = c.get('span')?.traceId;
+			await new Promise((resolve) =>
+				setTimeout(resolve, id === 'slow' ? 20 : 1),
+			);
+			const after = c.get('span')?.traceId;
+
+			seen.set(id as string, before === after ? before : 'moved');
+			return c.text('ok');
+		});
+
+		await Promise.all([
+			app.request('/orders/slow'),
+			app.request('/orders/fast'),
+		]);
+		await tracing.telemetry.close();
+
+		expect(spans()).toHaveLength(2);
+		expect(seen.get('slow')).not.toBe('moved');
+		expect(seen.get('fast')).not.toBe('moved');
+		expect(seen.get('slow')).not.toBe(seen.get('fast'));
+
+		// And each span is one of the two, not one span seen twice.
+		const traces = new Set(spans().map((one) => one.context.traceId));
+		expect(traces.size).toBe(2);
+	});
+
+	test('a log written in each handler goes to its own trace', async () => {
+		const tracing = telemetry({ instance: instance() });
+		const app = new Hono();
+		const log = createLogger('CheckoutService');
+
+		app.use('*', tracing);
+		app.get('/orders/:id', async (c) => {
+			const id = c.req.param('id');
+			await new Promise((resolve) =>
+				setTimeout(resolve, id === 'slow' ? 20 : 1),
+			);
+			log.info('read', { id });
+			return c.text('ok');
+		});
+
+		await Promise.all([
+			app.request('/orders/slow'),
+			app.request('/orders/fast'),
+		]);
+		await tracing.telemetry.close();
+
+		const logs = collected.filter((one) => one.type === 'log');
+		expect(logs).toHaveLength(2);
+		expect(new Set(logs.map((one) => one.span?.traceId)).size).toBe(2);
 	});
 });
 

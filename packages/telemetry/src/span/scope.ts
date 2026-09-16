@@ -40,7 +40,11 @@ export interface SpanScope {
 	 * it, that span carries a status and no `exception.type`, which is the one
 	 * thing a trace is read for.
 	 *
-	 * The first failure wins: it is the one nearest the cause.
+	 * **The first failure wins**, and stays won: a framework that catches and
+	 * then rethrows its own wrapper cannot replace the one nearest the cause.
+	 * The cost is that an early `fail()` for something the block went on to
+	 * recover from hides a later, unrelated exception — so call it for the
+	 * failure the span is about, not for every one it sees.
 	 */
 	fail(failure: unknown): void;
 	/** The header an outgoing call should carry to continue this trace. */
