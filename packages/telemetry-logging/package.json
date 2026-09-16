@@ -1,0 +1,68 @@
+{
+	"name": "@nxgt/telemetry-logging",
+	"version": "0.1.0",
+	"description": "The winston bridge for @nxgt/telemetry: trace ids on every line, winston lines into the pipeline, and telemetry signals into a winston already in place",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"keywords": [
+		"winston",
+		"telemetry",
+		"observability",
+		"logging",
+		"tracing",
+		"opentelemetry",
+		"typescript"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/nxgt-telemetry.git",
+		"directory": "packages/telemetry-logging"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"nxgt": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"dependencies": {
+		"@nxgt/telemetry": "workspace:^"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.0",
+		"winston": "3.19.0",
+		"winston-transport": "4.9.0"
+	},
+	"peerDependencies": {
+		"typescript": "^6.0.3",
+		"winston": "^3.11.0"
+	},
+	"peerDependenciesMeta": {
+		"winston": {
+			"optional": true
+		}
+	}
+}
