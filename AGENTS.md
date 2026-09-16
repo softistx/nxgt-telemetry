@@ -306,6 +306,12 @@ publishes to npm.
   issues a token covering nothing and every publish 404s in a way that reads
   like a missing package. The only test of whether a token can publish is a
   publish.
+- **A broken published version is deprecated, not unpublished**, from the
+  manual `Deprecate` workflow, which holds the same token:
+  `gh workflow run deprecate.yml -f versions='@nxgt/<name>@<x.y.z> …' -f message='…'`.
+  It takes exact versions only. It is the one job that uses npm, because Bun
+  has no `deprecate`; `setup-node` keeps the credential under `$RUNNER_TEMP`,
+  out of the checkout. An empty message lifts the deprecation.
 - **The release PR needs the repository's switch.** Settings → Actions →
   General → Workflow permissions: *Read and write*, plus *Allow GitHub Actions
   to create and approve pull requests*. The organisation setting does not
