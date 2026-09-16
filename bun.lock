@@ -14,7 +14,7 @@
     },
     "packages/telemetry": {
       "name": "@nxgt/telemetry",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
@@ -24,7 +24,7 @@
     },
     "packages/telemetry-hono": {
       "name": "@nxgt/telemetry-hono",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@nxgt/telemetry": "workspace:^",
       },
@@ -42,7 +42,7 @@
     },
     "packages/telemetry-httpyz": {
       "name": "@nxgt/telemetry-httpyz",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@nxgt/telemetry": "workspace:^",
       },
@@ -60,7 +60,7 @@
     },
     "packages/telemetry-logging": {
       "name": "@nxgt/telemetry-logging",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@nxgt/telemetry": "workspace:^",
       },
@@ -79,7 +79,7 @@
     },
     "packages/telemetry-mongo": {
       "name": "@nxgt/telemetry-mongo",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@nxgt/telemetry": "workspace:^",
       },
@@ -98,7 +98,7 @@
     },
     "packages/telemetry-otlp": {
       "name": "@nxgt/telemetry-otlp",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "@nxgt/telemetry": "workspace:^",
       },

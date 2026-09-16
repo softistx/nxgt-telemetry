@@ -1,5 +1,12 @@
 # @nxgt/telemetry
 
+## 0.2.1
+
+### Patch Changes
+
+- [#13](https://github.com/softistx/nxgt-telemetry/pull/13) [`1c30c8a`](https://github.com/softistx/nxgt-telemetry/commit/1c30c8a84a9aab5945b3e2ba827a51047a33afb6) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Document usage: a step-by-step **Usage** section, from `createTelemetry` to an
+  awaited `close`, with a recipe for collecting signals in a test.
+
 ## 0.2.0
 
 ### Minor Changes
