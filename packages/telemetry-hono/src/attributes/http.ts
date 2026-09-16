@@ -15,6 +15,7 @@ export const URL_SCHEME = 'url.scheme';
 export const HTTP_ROUTE = 'http.route';
 export const HTTP_STATUS = 'http.response.status_code';
 export const SERVER_ADDRESS = 'server.address';
+export const SERVER_PORT = 'server.port';
 
 /** The status at which a server span is the server's fault, and not before. */
 export const SERVER_ERROR_FROM = 500;
@@ -37,7 +38,12 @@ export function requestAttributes(request: Request): Attributes {
 			: {
 					[URL_PATH]: url.pathname,
 					[URL_SCHEME]: url.protocol.replace(':', ''),
-					[SERVER_ADDRESS]: url.host,
+					// The host **without** the port, which goes in its own
+					// attribute. `-httpyz` splits them the same way, and a
+					// server span and the client span that called it have to
+					// agree on a name every HTTP dashboard groups by.
+					[SERVER_ADDRESS]: url.hostname,
+					...(url.port === '' ? {} : { [SERVER_PORT]: Number(url.port) }),
 				}),
 	};
 }

@@ -40,6 +40,11 @@ middleware takes `(c, next)` and a handler takes `(c)`, which is how hono's own
 span after a middleware registered after the routes, and would report a mount's
 catch-all as the route of a 404.
 
+`server.address` is the host **without** the port, and `server.port` carries it
+separately — the OTel convention, and what `@nxgt/telemetry-httpyz` records on
+the other side of the wire, so a server span and the client span that called it
+agree about a name every HTTP dashboard groups by.
+
 `hono` is an optional peer from `^4.8.0`, which is where `hono/route` arrived.
 `matchedRoutes(c)` has been the same one-argument function ever since;
 `routePath(c, -1)` would have been the obvious call and takes a second argument
