@@ -208,7 +208,6 @@ describe('failure', () => {
 		const { telemetry, spans } = collecting();
 
 		await expect(
-			// biome-ignore lint/complexity/useLiteralKeys: throwing a non-Error on purpose
 			within(telemetry, () =>
 				span('charge', async () => {
 					throw 'no';

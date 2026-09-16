@@ -184,8 +184,44 @@ waiting on it. If it throws, the failure goes to `onExportError` and the next
 exporter still receives the batch — a collector being down is not a reason for
 a request to fail.
 
-`consoleExporter()` is built in. `@nxgt/telemetry-otlp` and
-`@nxgt/telemetry-mongo` are the others.
+### The ones built in
+
+```ts
+import { consoleExporter, jsonLinesExporter, fileExporter } from '@nxgt/telemetry';
+
+consoleExporter()                                     // one readable line per signal
+jsonLinesExporter()                                   // one JSON object per line, on stdout
+fileExporter({ path: 'logs/telemetry.jsonl' })        // the same, appended, with rotation
+```
+
+`fileExporter` **appends**: a restart continues the current file, and the period
+is read from that file's modification time rather than from when the process
+started, so a service that restarts hourly still rolls once a day. Rotation is
+epoch-aligned — `every: 24h` rolls at UTC midnight, not 24 hours after a
+restart — and an **empty file is never rolled**, so an idle service does not
+accumulate a directory of empty archives. `close()` rolls nothing: a rolled file
+is a finished period, and a shutdown is not one.
+
+| option | default | |
+| --- | --- | --- |
+| `path` | — | the file. Its directory is created if it is missing |
+| `maxSize` | `64 MiB` | roll at this size. `0` disables it |
+| `every` | `24h` | roll when this period changes, in ms. `0` disables it |
+| `keep` | `7` | how many rolled files to keep |
+| `compress` | `false` | gzip a rolled file |
+
+**This exporter owns its path.** It is the one stateful exporter here — it
+remembers the file's size and age instead of asking the filesystem on every
+batch — so give each path exactly one `fileExporter`. Concurrent batches are
+serialised internally, and any failure throws away what it remembered, so an
+external `logrotate`, a truncation or a full disk costs the batch it happened on
+and nothing after it.
+
+Neither line format carries the resource: a file belongs to one service, so
+repeating its name on every line would be noise. An exporter that writes
+somewhere shared — `@nxgt/telemetry-mongo` — stamps it instead.
+
+`@nxgt/telemetry-otlp` and `@nxgt/telemetry-mongo` are the others.
 
 ## Trace identity
 
@@ -280,7 +316,11 @@ somebody wrote it.
 | | |
 | --- | --- |
 | `Exporter` | `{ export(resource, batch), close?() }` |
-| `consoleExporter(options?)` | one line per signal; `write` and `stackTraces` |
+| `consoleExporter(options?)` | one readable line per signal; `write` and `stackTraces` |
+| `jsonLinesExporter(options?)` | one JSON object per line; `write` |
+| `fileExporter(options)` | the same, appended to a file, with rotation |
+| `DEFAULT_MAX_SIZE`, `DEFAULT_ROTATION_PERIOD` | 64 MiB and a UTC day |
+| `rotationDue`, `rolledName`, `rolledOf`, `prunable`, `RotationPolicy` | the rotation decisions, for an exporter that writes its own files |
 | `PipelineOptions` | what a `Telemetry` configures its queue with |
 
 ### Spans
@@ -367,6 +407,11 @@ somebody wrote it.
 - **A detached scope's `traceparent()` is `00-0…0-0…0-00`**, which this
   library's own parser rejects. That happens only when nothing is installed, and
   `isDetached(scope.context)` is the guard before injecting a header.
+- **A rolled file is named for the instant it was rolled**, not for the period
+  it covers: `telemetry-20260915-000100.jsonl` holds the 14th. `keep` orders
+  archives by the stamp and collision number it parses out of the name, not by
+  the name as text — inside one second, `-9` is newer than `-12` as text, and
+  the unsuffixed name is the oldest of the three.
 - **A log is never sampled, a span is.** A span of an unsampled trace is not
   emitted at all — the block still runs — while its logs come out as usual,
   carrying the `traceId`. Do not read "no span" as "nothing happened".
