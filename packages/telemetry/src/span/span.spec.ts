@@ -253,6 +253,107 @@ describe('failure', () => {
  * would replace the caller's failure *and* leave the span reading `ok` — work
  * that failed, recorded as work that succeeded.
  */
+describe('scope.fail', () => {
+	/**
+	 * It exists for the frameworks that **catch**: Hono turns a handler's
+	 * exception into a 500 and hands the middleware a normal return with the
+	 * failure on the side. Without this, that span carries a status and no
+	 * `exception.type`, which is the one thing a trace is read for.
+	 */
+	test('records a failure the block never threw', async () => {
+		const { telemetry, spans } = collecting();
+
+		await within(telemetry, () =>
+			span('charge', async (scope) => {
+				scope.fail(new RangeError('no funds'));
+			}),
+		);
+
+		const [record] = await spans();
+		expect(record?.status).toBe('error');
+		expect(record?.error?.type).toBe('RangeError');
+		expect(record?.error?.message).toBe('no funds');
+	});
+
+	test('an abort is cancelled here too, not an error', async () => {
+		const { telemetry, spans } = collecting();
+		const aborted = new Error('the caller went away');
+		aborted.name = 'AbortError';
+
+		await within(telemetry, () =>
+			span('charge', async (scope) => {
+				scope.fail(aborted);
+			}),
+		);
+
+		expect((await spans())[0]?.status).toBe('cancelled');
+	});
+
+	/**
+	 * The first failure is the one nearest the cause. A framework that catches
+	 * and then rethrows its own wrapper must not replace it.
+	 */
+	test('the first failure wins, including over a later throw', async () => {
+		const { telemetry, spans } = collecting();
+
+		await expect(
+			within(telemetry, () =>
+				span('charge', async (scope) => {
+					scope.fail(new RangeError('no funds'));
+					throw new Error('wrapped');
+				}),
+			),
+		).rejects.toThrow('wrapped');
+
+		const [record] = await spans();
+		expect(record?.error?.type).toBe('RangeError');
+		expect(record?.error?.message).toBe('no funds');
+	});
+
+	test('honours stackTraces: false, like a thrown failure does', async () => {
+		const { telemetry, spans } = collecting({ stackTraces: false });
+
+		await within(telemetry, () =>
+			span('charge', async (scope) => {
+				scope.fail(new RangeError('no funds'));
+			}),
+		);
+
+		const [record] = await spans();
+		expect(record?.error?.type).toBe('RangeError');
+		expect(record?.error?.stackTrace).toBeUndefined();
+	});
+
+	/** Every method on a scope is called from code already in trouble. */
+	test('never throws, whatever it is handed', async () => {
+		const { telemetry, spans } = collecting();
+		const hostile = new Proxy(
+			{},
+			{
+				get() {
+					throw new Error('nope');
+				},
+			},
+		);
+
+		await within(telemetry, () =>
+			span('charge', async (scope) => {
+				scope.fail(hostile);
+				scope.fail(undefined);
+			}),
+		);
+
+		expect((await spans())[0]?.status).toBe('error');
+	});
+
+	test('does nothing visible with no telemetry installed', async () => {
+		await span('charge', async (scope) => {
+			scope.fail(new Error('no funds'));
+			expect(scope.status).toBe('error');
+		});
+	});
+});
+
 describe('a failure that is hostile to read', () => {
 	test('is rethrown as it arrived, and the span still says error', async () => {
 		const { telemetry, spans } = collecting();

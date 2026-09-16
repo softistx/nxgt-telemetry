@@ -115,7 +115,7 @@ async function open<T>(
 		parent?.attributes ?? EMPTY_ATTRIBUTES,
 		attributesOf(options.attributes),
 	);
-	const scope = new Span(context, name, kind);
+	const scope = new Span(context, name, kind, telemetry.stackTraces);
 	const startedAt = Date.now();
 
 	try {
@@ -127,7 +127,7 @@ async function open<T>(
 		// Recording must never become the reason the caller's failure is lost,
 		// so nothing in here may raise in its place.
 		try {
-			scope.fail(failure, telemetry.stackTraces);
+			scope.fail(failure);
 		} catch {
 			scope.status = 'error';
 		}
