@@ -1,6 +1,6 @@
 /**
- * Whether each packed package asks for a version of its siblings that the
- * siblings being published actually are.
+ * Whether each packed package asks for **exactly** the sibling version being
+ * published beside it.
  *
  * `bun pm pack` turns `workspace:^` into a caret range, and it takes the
  * version **from `bun.lock`**, not from the sibling's `package.json`. After
@@ -11,9 +11,18 @@
  * excludes 0.2.0: a consumer got the 0.1.0 core underneath the 0.2.0
  * integrations.
  *
+ * The comparison is exact rather than "does the sibling satisfy the range",
+ * for two reasons measured on Bun 1.4.2:
+ *
+ *   - a stale lock *within* one minor — lock 0.2.0, manifest 0.2.1 — packs
+ *     `^0.2.0`, which 0.2.1 satisfies, while the package may use an API that
+ *     only 0.2.1 has;
+ *   - `Bun.semver.satisfies` answers `true` for a range that is not a range at
+ *     all: `'garbage!!'`, `'latest'`, `''`.
+ *
  * `verify:artifacts` installs the tarballs with `overrides` pointing each
  * sibling at its own tarball, which is right for what it tests and is exactly
- * why it could not see this. This check reads the ranges instead.
+ * why the install alone could not see this.
  */
 export interface PackedManifest {
 	readonly name: string;
@@ -23,31 +32,63 @@ export interface PackedManifest {
 	readonly optionalDependencies?: Readonly<Record<string, string>>;
 }
 
-const FIELDS = [
+/** The fields a consumer's install resolves. */
+export const INSTALLED_FIELDS = [
 	'dependencies',
 	'peerDependencies',
 	'optionalDependencies',
 ] as const;
 
+/**
+ * What `bun pm pack` must turn a `workspace:` spec into, given the sibling's
+ * version. Anything that is not a `workspace:` spec is not this check's.
+ */
+export function expectedRange(
+	spec: string,
+	version: string,
+): string | undefined {
+	switch (spec) {
+		case 'workspace:^':
+			return `^${version}`;
+		case 'workspace:~':
+			return `~${version}`;
+		case 'workspace:*':
+			return version;
+		default:
+			return spec.startsWith('workspace:')
+				? spec.slice('workspace:'.length)
+				: undefined;
+	}
+}
+
+/**
+ * @param packed the manifests as they are in the tarballs
+ * @param sources the same packages' manifests as they are in the repository,
+ *   which is where the `workspace:` specs still are
+ */
 export function siblingRangeProblems(
-	manifests: readonly PackedManifest[],
+	packed: readonly PackedManifest[],
+	sources: readonly PackedManifest[],
 ): string[] {
-	const versions = new Map(manifests.map((m) => [m.name, m.version]));
+	const versions = new Map(packed.map((m) => [m.name, m.version]));
+	const source = new Map(sources.map((m) => [m.name, m]));
 	const problems: string[] = [];
 
-	for (const manifest of manifests) {
-		for (const field of FIELDS) {
+	for (const manifest of packed) {
+		for (const field of INSTALLED_FIELDS) {
+			const specs = source.get(manifest.name)?.[field] ?? {};
+
 			for (const [dep, range] of Object.entries(manifest[field] ?? {})) {
 				const version = versions.get(dep);
-				if (version === undefined) continue;
-				// A `workspace:` or `link:` left unresolved is reported
-				// elsewhere; this is only about ranges a registry would read.
-				if (/^[a-z]+:/.test(range)) continue;
-				if (Bun.semver.satisfies(version, range)) continue;
+				const spec = specs[dep];
+				if (version === undefined || spec === undefined) continue;
+
+				const expected = expectedRange(spec, version);
+				if (expected === undefined || range === expected) continue;
 
 				problems.push(
-					`${manifest.name}: ${field}.${dep} = ${range} does not accept ` +
-						`${dep}@${version}, the version being published beside it. ` +
+					`${manifest.name}: ${field}.${dep} = ${range}, but ${spec} with ` +
+						`${dep}@${version} beside it should pack as ${expected}. ` +
 						'bun.lock is probably stale: run `bun install` after ' +
 						'`changeset version`.',
 				);

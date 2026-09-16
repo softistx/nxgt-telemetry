@@ -27,7 +27,10 @@ app.get('/orders/:id', async (c) => {
   return c.json(await orders.find(c.req.param('id')));
 });
 
-process.on('SIGTERM', () => void tracing.telemetry.close());
+process.on('SIGTERM', async () => {
+  await tracing.telemetry.close();   // awaited, or the last batch is lost
+  process.exit(0);
+});
 ```
 
 ## The span wraps the handler

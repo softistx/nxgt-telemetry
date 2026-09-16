@@ -24,6 +24,135 @@ vocabulary exactly: the same severities, span kinds, statuses, `traceparent`
 rules, sampling rule and attribute names. A trace started in one and continued
 in the other is one trace.
 
+## Usage
+
+The whole life of a service, in the order you write it. Each step links to the
+section that explains it.
+
+**1. Install one telemetry at startup**, before anything logs.
+[The root](#the-root)
+
+```ts
+// telemetry.ts
+import { consoleExporter, createTelemetry } from '@nxgt/telemetry';
+
+export const telemetry = createTelemetry('checkout', {
+  version: '1.4.0',
+  environment: 'production',
+  exporters: [consoleExporter()],
+}).install();
+```
+
+**2. Give each part of the code a logger.** A logger is cheap and has no
+state; create it at module level. [Logging](#logging)
+
+```ts
+import { createLogger } from '@nxgt/telemetry';
+
+const log = createLogger('CheckoutService');
+
+log.info('checkout started', { cartSize: 3 });
+```
+
+**3. Declare the events that matter**, so a log line carries only the fields
+you chose. [Declared event](#declared-event)
+
+```ts
+import { event } from '@nxgt/telemetry';
+import { z } from 'zod';
+
+const Charged = event('checkout.charged', z.object({ orderId: z.string(), amount: z.number() }));
+
+log.info(Charged({ orderId: 'o-1', amount: 42 }));
+```
+
+**4. Wrap units of work in spans.** Everything inside a span, logs included,
+carries its `traceId`. [Spans](#spans)
+
+```ts
+import { span } from '@nxgt/telemetry';
+
+export async function checkout(orderId: string) {
+  return span('checkout', { attributes: { orderId } }, async (scope) => {
+    const order = await span('order.load', () => orders.find(orderId));
+    scope.attribute('order.total', order.total);
+    await span('payment.charge', { kind: 'client' }, () => payments.charge(order));
+    log.info(Charged({ orderId, amount: order.total }));   // carries the trace
+    return order;
+  });
+}
+```
+
+**5. Carry the trace across services.** Continue the caller's `traceparent` on
+the way in and send the current one on the way out.
+[Propagation](#propagation-and-traceparent)
+
+```ts
+import { continuing, currentTraceparent } from '@nxgt/telemetry';
+
+// in: an HTTP handler
+await continuing(request.headers.get('traceparent'), 'POST /checkout', { kind: 'server' }, () =>
+  checkout(orderId),
+);
+
+// out: an HTTP call made inside a span
+await fetch('https://stock.internal/reserve', {
+  method: 'POST',
+  headers: { traceparent: currentTraceparent() ?? '' },
+});
+```
+
+With Hono and httpyz, the two integrations do both halves for you:
+[`@nxgt/telemetry-hono`](https://www.npmjs.com/package/@nxgt/telemetry-hono)
+and [`@nxgt/telemetry-httpyz`](https://www.npmjs.com/package/@nxgt/telemetry-httpyz).
+
+**6. Put request-wide facts in scope once**, instead of passing them to every
+log call. [Context](#context)
+
+```ts
+import { withAttributes } from '@nxgt/telemetry';
+
+await withAttributes({ tenant: 'acme' }, () => checkout(orderId));
+```
+
+**7. Ship the signals somewhere.** Swap the console for a collector, a file or
+MongoDB. The code from steps 2 to 6 does not change. [Exporters](#exporters)
+
+```ts
+import { otlpExporter } from '@nxgt/telemetry-otlp';
+
+createTelemetry('checkout', {
+  sampler: ratioSampler(0.1),   // keep one trace in ten; logs are never sampled
+  exporters: [otlpExporter({ endpoint: 'http://localhost:4318' })],
+}).install();
+```
+
+**8. Close it on shutdown, and await it**, or the last batch is lost.
+[The root](#the-root)
+
+```ts
+process.on('SIGTERM', async () => {
+  await telemetry.close();
+  process.exit(0);
+});
+```
+
+**In a test**, give each suite its own telemetry and an exporter that keeps
+what it receives, instead of installing one globally.
+[Context](#context)
+
+```ts
+import type { Exporter, Signal } from '@nxgt/telemetry';
+import { createTelemetry, withTelemetry } from '@nxgt/telemetry';
+
+const received: Signal[] = [];
+const collect: Exporter = { export: (_resource, batch) => void received.push(...batch) };
+const telemetry = createTelemetry('test', { exporters: [collect] });
+
+await withTelemetry(telemetry, () => checkout('o-1'));
+await telemetry.close();   // flushes: `received` now holds the spans and logs
+```
+
 ## Concepts
 
 Every word this library uses, once, with the smallest example that shows it.

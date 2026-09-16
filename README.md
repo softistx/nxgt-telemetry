@@ -20,6 +20,78 @@ defines each one — telemetry, resource, signal, trace, span, span context,
 propagation, context, attributes and their inheritance, severity, declared
 events, sampling, exporters, the pipeline — with a short example for each.
 
+## Usage
+
+A Hono service that exports to an OpenTelemetry collector, calls another
+service, reads MongoDB and keeps its existing winston logger:
+
+```sh
+bun add @nxgt/telemetry @nxgt/telemetry-otlp @nxgt/telemetry-hono \
+  @nxgt/telemetry-httpyz @nxgt/telemetry-mongo @nxgt/telemetry-logging
+```
+
+```ts
+import { createHttpClient } from '@nxgt/httpyz';
+import { createLogger } from '@nxgt/telemetry';
+import { telemetry } from '@nxgt/telemetry-hono';
+import { tracing } from '@nxgt/telemetry-httpyz';
+import { telemetryFormat } from '@nxgt/telemetry-logging';
+import { instrumentMongo } from '@nxgt/telemetry-mongo';
+import { otlpExporter } from '@nxgt/telemetry-otlp';
+import { Hono } from 'hono';
+import { MongoClient } from 'mongodb';
+import winston from 'winston';
+
+// 1. one telemetry for the process, built by the middleware
+const traced = telemetry({
+  service: 'checkout',
+  version: '1.4.0',
+  exporters: [otlpExporter({ endpoint: 'http://localhost:4318' })],
+  traced: (c) => c.req.path !== '/health',
+});
+
+// 2. the existing winston lines gain traceId and spanId
+const logger = winston.createLogger({
+  format: winston.format.combine(telemetryFormat(), winston.format.json()),
+  transports: [new winston.transports.Console()],
+});
+
+// 3. a span per Mongo command, a span and a traceparent per outgoing call
+const mongo = new MongoClient(process.env.MONGO_URL!, { monitorCommands: true });
+instrumentMongo(mongo);
+const stock = createHttpClient({ baseUrl: 'http://stock.internal', use: [tracing()] });
+
+const log = createLogger('CheckoutRoutes');
+const app = new Hono();
+app.use('*', traced);
+
+app.post('/orders/:id/checkout', async (c) => {
+  const id = c.req.param('id');
+  const order = await mongo.db().collection('orders').findOne({ id });   // child span
+  await stock.post('/reservations', { json: { id } });                   // child span, traceparent sent
+  log.info('order checked out', { id });                                 // carries the trace
+  logger.info('checkout done', { id });                                  // so does winston
+  return c.json(order);
+});
+
+// 4. the last batch is the one that explains the shutdown: await it
+process.on('SIGTERM', async () => {
+  await traced.telemetry.close();
+  process.exit(0);
+});
+
+export default app;
+```
+
+One request gives one trace: the server span, a client span for the Mongo
+query, and a client span for the call to `stock`. If `stock` runs the same
+middleware, its server span joins the same trace. Every log line from the
+handler carries that trace's id.
+
+Outside a web framework, the core does the same by hand: see
+[**Usage**](packages/telemetry/README.md#usage) in the core README, a
+step-by-step walk from `createTelemetry` to `close`, with a recipe for tests.
+
 ## How they fit
 
 ```
