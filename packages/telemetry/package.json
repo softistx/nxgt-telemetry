@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/telemetry",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Logs and traces for a TypeScript service, with no OpenTelemetry SDK: spans over AsyncLocalStorage, W3C traceparent propagation, declared events, and a pipeline that never blocks the caller",
 	"license": "MIT",
 	"type": "module",

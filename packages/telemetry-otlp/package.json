@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/telemetry-otlp",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "An OTLP/HTTP JSON exporter for @nxgt/telemetry: logs and traces to any OpenTelemetry collector, over fetch, with no OpenTelemetry SDK",
 	"license": "MIT",
 	"type": "module",

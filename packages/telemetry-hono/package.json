@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/telemetry-hono",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "A Hono middleware for @nxgt/telemetry: one server span per request, W3C traceparent continuation, and the route as the span name",
 	"license": "MIT",
 	"type": "module",

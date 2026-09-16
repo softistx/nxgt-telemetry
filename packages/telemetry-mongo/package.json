@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/telemetry-mongo",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "MongoDB for @nxgt/telemetry: an exporter that writes signals to a capped-by-TTL collection, and client spans from the driver's command monitoring",
 	"license": "MIT",
 	"type": "module",

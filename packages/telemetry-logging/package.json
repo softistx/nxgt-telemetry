@@ -1,6 +1,6 @@
 {
 	"name": "@nxgt/telemetry-logging",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "The winston bridge for @nxgt/telemetry: trace ids on every line, winston lines into the pipeline, and telemetry signals into a winston already in place",
 	"license": "MIT",
 	"type": "module",
