@@ -22,6 +22,19 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/telemetry-otlp": {
+      "name": "@nxgt/telemetry-otlp",
+      "version": "0.1.0",
+      "dependencies": {
+        "@nxgt/telemetry": "workspace:^",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.0",
+      },
+      "peerDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
   },
   "overrides": {
     "typescript": "~6.0.3",
@@ -90,6 +103,8 @@
     "@manypkg/tools": ["@manypkg/tools@2.1.2", "", { "dependencies": { "jju": "^1.4.0", "tinyglobby": "^0.2.13", "yaml": "^2.9.0" } }, "sha512-6QEf6yqFbETdwGITKq57aYoPfX/3K8XFNwsAlx0C1M7o8cb79sv1M3w+tWuWvIcSbNqrLF7OD7YpZMVVz335hQ=="],
 
     "@nxgt/telemetry": ["@nxgt/telemetry@workspace:packages/telemetry"],
+
+    "@nxgt/telemetry-otlp": ["@nxgt/telemetry-otlp@workspace:packages/telemetry-otlp"],
 
     "@pnpm/deps.graph-sequencer": ["@pnpm/deps.graph-sequencer@1100.0.1", "", {}, "sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A=="],
 
