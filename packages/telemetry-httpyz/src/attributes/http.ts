@@ -13,7 +13,19 @@ export const URL_FULL = 'url.full';
 export const SERVER_ADDRESS = 'server.address';
 export const SERVER_PORT = 'server.port';
 export const HTTP_STATUS = 'http.response.status_code';
-/** The call's name, when it had one: an OpenAPI `operationId`. */
+/**
+ * The path as the caller wrote it: `/employees/{id}`. An OTel convention, and
+ * the one thing that lets a backend group calls that differ only by their
+ * parameters.
+ */
+export const URL_TEMPLATE = 'url.template';
+/**
+ * The call's name, when it had one: an OpenAPI `operationId`.
+ *
+ * This name is **not** in the OTel semantic conventions — there is none for it
+ * — and it is an addition to the vocabulary this estate shares with
+ * `stx-telemetry`. Its ktor module should use the same one.
+ */
 export const OPERATION = 'http.operation';
 
 /**

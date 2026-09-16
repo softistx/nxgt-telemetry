@@ -11,7 +11,7 @@ import {
 	span,
 	withTelemetry,
 } from '@nxgt/telemetry';
-import { TRACEPARENT, tracing } from './tracing';
+import { TRACEPARENT, tracing, UNNAMED } from './tracing';
 
 let collected: Signal[] = [];
 
@@ -120,6 +120,7 @@ describe('the span it opens', () => {
 		expect(spans()[0]?.attributes).toMatchObject({
 			'http.request.method': 'POST',
 			'url.full': 'https://api.example:8443/employees/e-1?page=2',
+			'url.template': '/employees/{id}',
 			'server.address': 'api.example',
 			'server.port': 8443,
 			'http.response.status_code': 201,
@@ -360,6 +361,69 @@ describe('the header it sends', () => {
 		expect(sent).toHaveLength(1);
 		expect(sent[0]?.headers.get(TRACEPARENT)).not.toBeNull();
 		expect(spans()).toHaveLength(1);
+	});
+
+	/**
+	 * The copy is the interesting half of that fallback: a request that lost its
+	 * body, its method or its signal on the way through would be a call that
+	 * silently did something else.
+	 */
+	test('the copy keeps the method, the body, the headers and the signal', async () => {
+		const telemetry = instance();
+		const { next, sent } = sending();
+		const controller = new AbortController();
+		const frozen = new Request('https://api.example/employees', {
+			method: 'POST',
+			body: JSON.stringify({ name: 'Ada' }),
+			headers: { 'content-type': 'application/json', 'x-tenant': 'acme' },
+			signal: controller.signal,
+		});
+		Object.defineProperty(frozen.headers, 'set', {
+			value: () => {
+				throw new TypeError('immutable');
+			},
+		});
+
+		await withTelemetry(telemetry, () =>
+			tracing()(frozen, next, { method: 'post', path: '/employees' }),
+		);
+		await telemetry.close();
+
+		const copy = sent[0] as Request;
+		expect(copy.method).toBe('POST');
+		expect(copy.url).toBe('https://api.example/employees');
+		expect(copy.headers.get('x-tenant')).toBe('acme');
+		expect(copy.headers.get(TRACEPARENT)).not.toBeNull();
+		expect(await copy.json()).toEqual({ name: 'Ada' });
+
+		// The original is untouched: a copy that consumed it would leave the
+		// caller holding a request it can no longer send.
+		expect(frozen.bodyUsed).toBe(false);
+
+		controller.abort();
+		expect(copy.signal.aborted).toBe(true);
+	});
+
+	/** A span has to be called something; failing the call over its name would
+	 * be the tracing library causing the outage. */
+	test('a call context it cannot read still produces a span', async () => {
+		const telemetry = instance();
+		const { next, sent } = sending();
+		const hostile = new Proxy({} as CallContext, {
+			get() {
+				throw new Error('nope');
+			},
+		});
+
+		await withTelemetry(telemetry, () =>
+			tracing()(new Request('https://api.example/x'), next, hostile),
+		);
+		await telemetry.close();
+
+		expect(sent).toHaveLength(1);
+		expect(spans()).toHaveLength(1);
+		expect(spans()[0]?.name).toBe(UNNAMED);
+		expect(spans()[0]?.attributes['http.response.status_code']).toBe(200);
 	});
 });
 

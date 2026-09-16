@@ -2,8 +2,8 @@
 '@nxgt/telemetry-httpyz': minor
 ---
 
-Add `@nxgt/telemetry-httpyz`: one client span per `@nxgt/httpyz` call, with the
-current `traceparent` on the way out.
+Add `@nxgt/telemetry-httpyz`: one client span per `@nxgt/httpyz` request, with
+the current `traceparent` on the way out.
 
 ```ts
 const api = createHttpClient({ baseUrl, use: [tracing()] });
@@ -25,6 +25,19 @@ The span is named for the `operationId` when the call has one and
 hands over already, so there is no cardinality problem to solve. `url.full` has
 its userinfo removed, and a `url` hook replaces it for a query string that
 carries a key.
+
+Per *request*, not per call: `retry` and `auth` sit outside the middlewares in
+httpyz, so a retried call and one replayed after a token refresh each open a
+fresh span — three attempts are three spans under one parent, which is what a
+trace should show. A failure raised *after* the reply arrives — a
+`ValidationError`, an `UndeclaredStatusError` — happens outside the middleware
+chain and is not on the span.
+
+`url.template` carries the path template, which is the OTel convention for
+grouping calls that differ only by their parameters. `http.operation` carries an
+OpenAPI `operationId`; there is no convention for that one, so it is an
+**addition to the vocabulary** this estate shares with `stx-telemetry`, and its
+ktor module should use the same name.
 
 With no telemetry anywhere, **no header is sent**: a detached scope's
 `traceparent()` is all zeros, which W3C calls invalid, and sending it is worse

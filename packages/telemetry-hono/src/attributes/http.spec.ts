@@ -29,12 +29,28 @@ describe('requestAttributes', () => {
 		expect(found['http.route']).toBeUndefined();
 	});
 
-	test('keeps the port, because two services can share a host', () => {
+	/**
+	 * The address is the host without the port, and the port is its own
+	 * attribute — which is what `-httpyz` records on the other side of the
+	 * wire. A server span and the client span that called it have to agree
+	 * about a name every HTTP dashboard groups by.
+	 */
+	test('splits the host from the port, as the client side does', () => {
 		expect(
-			requestAttributes(new Request('http://localhost:8787/health'))[
-				'server.address'
-			],
-		).toBe('localhost:8787');
+			requestAttributes(new Request('http://localhost:8787/health')),
+		).toEqual({
+			'http.request.method': 'GET',
+			'url.path': '/health',
+			'url.scheme': 'http',
+			'server.address': 'localhost',
+			'server.port': 8787,
+		});
+	});
+
+	test('a default port is not reported as one', () => {
+		expect(
+			requestAttributes(new Request('https://checkout.example/health')),
+		).not.toHaveProperty('server.port');
 	});
 
 	/** A request whose URL this runtime will not parse still gets a span. */

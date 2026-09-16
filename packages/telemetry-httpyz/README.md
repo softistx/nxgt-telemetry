@@ -1,7 +1,7 @@
 # @nxgt/telemetry-httpyz
 
 One client span per [`@nxgt/httpyz`](https://www.npmjs.com/package/@nxgt/httpyz)
-call, with the current `traceparent` on the way out — which is the half that
+request, with the current `traceparent` on the way out — which is the half that
 makes a trace a trace.
 
 ```sh
@@ -30,6 +30,7 @@ whatever is open **now**. Nothing has to be passed down to the call site.
 | `http.request.method` | uppercased, whatever the caller wrote |
 | `url.full` | the URL, **without its userinfo** |
 | `server.address`, `server.port` | the port only when there is one |
+| `url.template` | the path as the caller wrote it: `/employees/{id}` |
 | `http.operation` | the `operationId`, when the call has one |
 | `http.response.status_code` | after the reply |
 
@@ -100,9 +101,18 @@ into a failed call.
 - **`url.full` keeps the query string.** It is usually what tells one call from
   another. If yours carries a key, pass a `url` hook — the userinfo is stripped
   for you, the query is not.
-- **A retry is one span, not two.** httpyz's `retry` sits outside the
-  middlewares, so a retried call opens a fresh span each attempt; a middleware
-  cannot see that it is the second one.
+- **A retry is a span per attempt.** `retry` and `auth` sit *outside* the
+  middlewares in httpyz — `use:` is composed inside both — so a retried call,
+  and a call replayed after a token refresh, each open a fresh span. Three
+  attempts are three spans under one parent, which is what a trace should show;
+  a middleware cannot see that it is the second one, and there is no placement
+  that gets outside `retry`.
+- **A failure that happens after the reply arrives is not on the span.**
+  httpyz reads and validates the body *outside* the middleware chain, so a
+  `ValidationError`, an `UndeclaredStatusError` or a `ReplyStatusError` leaves
+  the client span `ok` with the status the server sent. The caller saw a
+  failure and the trace says the call was fine. `currentSpan()` — or the
+  enclosing `scope.fail(…)` — is where to put it if you need it.
 
 ## License
 

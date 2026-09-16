@@ -48,6 +48,44 @@ describe('safeUrl', () => {
 	});
 });
 
+describe('the names it uses', () => {
+	/**
+	 * `url.template` is the OTel convention and is what lets a backend group
+	 * calls that differ only by their parameters. `http.operation` is **not** a
+	 * convention — there is none for an OpenAPI `operationId` — so it is an
+	 * addition to the vocabulary shared with `stx-telemetry`.
+	 */
+	test('are the ones the conventions give, where there is one', async () => {
+		const {
+			HTTP_METHOD,
+			URL_FULL,
+			SERVER_ADDRESS,
+			SERVER_PORT,
+			HTTP_STATUS,
+			URL_TEMPLATE,
+			OPERATION,
+		} = await import('./http');
+
+		expect([
+			HTTP_METHOD,
+			URL_FULL,
+			URL_TEMPLATE,
+			SERVER_ADDRESS,
+			SERVER_PORT,
+			HTTP_STATUS,
+			OPERATION,
+		]).toEqual([
+			'http.request.method',
+			'url.full',
+			'url.template',
+			'server.address',
+			'server.port',
+			'http.response.status_code',
+			'http.operation',
+		]);
+	});
+});
+
 describe('callFailed', () => {
 	/**
 	 * Where a client span and a server span disagree, and the asymmetry is the
