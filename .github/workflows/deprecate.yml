@@ -1,0 +1,57 @@
+name: Deprecate
+
+# Marks published versions as deprecated, from the one place that holds the
+# publish token. A version that is broken on the registry cannot be unpublished
+# once anyone may depend on it; deprecating it is how its installers are told.
+#
+# Run it by hand: Actions → Deprecate → Run workflow, or
+#   gh workflow run deprecate.yml -f versions='@nxgt/a@1.0.0 @nxgt/b@1.0.0' -f message='…'
+# An empty message lifts a deprecation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Exact versions, space-separated: @nxgt/<name>@<x.y.z>'
+        required: true
+        type: string
+      message:
+        description: 'What installers are told. Empty lifts the deprecation.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deprecate:
+    name: Deprecate
+    runs-on: ubuntu-latest
+    steps:
+      # Bun has no `deprecate`, so this is the one job that uses npm. The
+      # action writes the credential to a .npmrc under $RUNNER_TEMP, never into
+      # the checkout, and reads it from NODE_AUTH_TOKEN.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSIONS: ${{ inputs.versions }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          for spec in $VERSIONS; do
+            # Exact versions in this scope only: a range here would deprecate
+            # every version it matches.
+            if ! [[ "$spec" =~ ^@nxgt/[a-z0-9-]+@[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::$spec is not @nxgt/<name>@<x.y.z>"
+              exit 1
+            fi
+          done
+          for spec in $VERSIONS; do
+            npm deprecate "$spec" "$MESSAGE"
+            echo "$spec: $(npm view "$spec" deprecated || true)"
+          done
