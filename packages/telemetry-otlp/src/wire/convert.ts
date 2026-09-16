@@ -19,7 +19,7 @@ import type {
 	OtlpSpan,
 	OtlpSpanEvent,
 	ScopeLogs,
-} from './wire';
+} from './documents';
 
 /** The instrumentation scope reported for spans. Logs report their `source`. */
 export const SPAN_SCOPE = 'nxgt-telemetry';
@@ -56,7 +56,16 @@ export function anyValue(value: AttributeValue): AnyValue {
 	if (typeof value === 'number') {
 		// A whole number is an integer to every backend that groups by it, and
 		// it crosses as text so that the low bits survive.
-		return Number.isInteger(value)
+		//
+		// **Safe**, not merely whole: `Number.isInteger` is true well past the
+		// safe range, and `String` switches to exponential notation at 1e21.
+		// `1e21` would be sent as `"1e+21"`, which is not the decimal string
+		// OTLP asks for; `1e20` is decimal but past `int64`; and `2 ** 60`
+		// would arrive with the wrong last three digits. A collector rejects
+		// the first two with a `400`, which is not retried — so one attribute
+		// would lose the whole document. Past the safe range the honest answer
+		// is a double, which is all the precision the value had anyway.
+		return Number.isSafeInteger(value)
 			? { intValue: String(value) }
 			: { doubleValue: value };
 	}

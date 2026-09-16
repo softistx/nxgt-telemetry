@@ -12,7 +12,8 @@ import {
 	OtlpRejectedError,
 	OtlpUnreachableError,
 } from './errors';
-import { otlpExporter, RETRYABLE } from './otlp';
+import { otlpExporter } from './otlp';
+import { RETRYABLE } from './transport';
 
 const RESOURCE: Resource = { service: 'checkout', attributes: {} };
 const ENDPOINT = 'http://collector:4318';
@@ -367,6 +368,182 @@ describe('the two documents are independent', () => {
 			'http://collector:4318/v1/traces',
 		]);
 		expect(failure).toBeInstanceOf(OtlpRejectedError);
+	});
+
+	/**
+	 * The two documents go to two paths and can fail for unrelated reasons — a
+	 * `400` on one and a refused connection on the other is not one outage.
+	 * Reporting only the first loses the half of the story that says the
+	 * collector is not simply down.
+	 */
+	test('both failures are reported when both documents fail', async () => {
+		const answering = (async (url: string | URL | Request) => {
+			if (String(url).endsWith('/v1/logs')) {
+				return new Response('bad', { status: 400 });
+			}
+			throw new Error('ECONNREFUSED');
+		}) as unknown as typeof fetch;
+
+		const failure = (await otlpExporter({
+			endpoint: ENDPOINT,
+			attempts: 1,
+			fetch: answering,
+			sleep: never,
+		})
+			.export(RESOURCE, [LOG, SPAN])
+			?.catch((thrown: unknown) => thrown)) as AggregateError;
+
+		expect(failure).toBeInstanceOf(AggregateError);
+		expect(failure.errors.map((one: Error) => one.name).sort()).toEqual([
+			'OtlpRejectedError',
+			'OtlpUnreachableError',
+		]);
+	});
+
+	test('one failure is still thrown on its own, not wrapped', async () => {
+		const answering = (async (url: string | URL | Request) =>
+			String(url).endsWith('/v1/logs')
+				? new Response('bad', { status: 400 })
+				: ok()) as unknown as typeof fetch;
+
+		const failure = await otlpExporter({
+			endpoint: ENDPOINT,
+			fetch: answering,
+		})
+			.export(RESOURCE, [LOG, SPAN])
+			?.catch((thrown: unknown) => thrown);
+
+		expect(failure).toBeInstanceOf(OtlpRejectedError);
+	});
+});
+
+describe('the answer it does not need', () => {
+	/**
+	 * An unconsumed `Response` holds its connection out of the keep-alive pool
+	 * until it is garbage-collected, and this is the path every successful
+	 * export takes, once per linger interval, for the life of the process. The
+	 * symptom is connection churn at the collector, which no test failure
+	 * announces.
+	 */
+	test('cancels the body of an accepted request nobody asked about', async () => {
+		let sent: Response | undefined;
+		const answering = (async () => {
+			sent = new Response('{}', { status: 200 });
+			return sent;
+		}) as unknown as typeof fetch;
+
+		await otlpExporter({ endpoint: ENDPOINT, fetch: answering }).export(
+			RESOURCE,
+			[LOG],
+		);
+
+		expect(sent?.bodyUsed).toBe(true);
+	});
+
+	test('reads it instead when somebody asked', async () => {
+		let sent: Response | undefined;
+		const answering = (async () => {
+			sent = new Response(JSON.stringify({ partialSuccess: {} }), {
+				status: 200,
+			});
+			return sent;
+		}) as unknown as typeof fetch;
+
+		await otlpExporter({
+			endpoint: ENDPOINT,
+			fetch: answering,
+			onPartialSuccess: () => undefined,
+		}).export(RESOURCE, [LOG]);
+
+		expect(sent?.bodyUsed).toBe(true);
+	});
+});
+
+describe('the bound on a collector that does not answer', () => {
+	/**
+	 * `AbortSignal.timeout` is the only thing standing between a hung collector
+	 * and an export that never settles — which, during `close()`, is the
+	 * `drainTimeout` being spent on nothing.
+	 */
+	test('every attempt carries a timeout signal', async () => {
+		const signals: (AbortSignal | null | undefined)[] = [];
+		const answering = (async (
+			_url: string | URL | Request,
+			init?: RequestInit,
+		) => {
+			signals.push(init?.signal);
+			return new Response('busy', { status: 503 });
+		}) as unknown as typeof fetch;
+
+		await otlpExporter({
+			endpoint: ENDPOINT,
+			attempts: 2,
+			timeout: 25,
+			fetch: answering,
+			sleep: never,
+		})
+			.export(RESOURCE, [LOG])
+			?.catch(() => undefined);
+
+		expect(signals).toHaveLength(2);
+		for (const signal of signals) expect(signal).toBeInstanceOf(AbortSignal);
+	});
+
+	test('a collector that never answers within the timeout is unreachable', async () => {
+		const hanging = ((_url: string | URL | Request, init?: RequestInit) =>
+			new Promise<Response>((_resolve, reject) => {
+				init?.signal?.addEventListener('abort', () =>
+					reject(new Error('The operation timed out.')),
+				);
+			})) as unknown as typeof fetch;
+
+		const failure = await otlpExporter({
+			endpoint: ENDPOINT,
+			attempts: 1,
+			timeout: 20,
+			fetch: hanging,
+			sleep: never,
+		})
+			.export(RESOURCE, [LOG])
+			?.catch((thrown: unknown) => thrown);
+
+		expect(failure).toBeInstanceOf(OtlpUnreachableError);
+	});
+});
+
+describe('what a failure is allowed to say', () => {
+	/**
+	 * A vendor's collector URL carries its key in the userinfo or the query
+	 * string often enough that a failure must not be the thing that writes it
+	 * to a log — and a failure is exactly what `onExportError` logs.
+	 */
+	test('a credential in the endpoint reaches neither the message nor the url', async () => {
+		const { fetch } = collector(() => new Response('bad', { status: 400 }));
+
+		const failure = (await otlpExporter({
+			endpoint: 'https://user:s3cret@otlp.example',
+			fetch,
+		})
+			.export(RESOURCE, [LOG])
+			?.catch((thrown: unknown) => thrown)) as OtlpRejectedError;
+
+		expect(failure.url).toBe('https://otlp.example/v1/logs');
+		expect(failure.message).not.toContain('s3cret');
+	});
+
+	test('a key in the query string is dropped too', async () => {
+		const { fetch } = collector(() => new Response('bad', { status: 400 }));
+
+		const failure = (await otlpExporter({
+			endpoint: 'https://otlp.example',
+			logsPath: '/v1/logs?api-key=s3cret',
+			fetch,
+		})
+			.export(RESOURCE, [LOG])
+			?.catch((thrown: unknown) => thrown)) as OtlpRejectedError;
+
+		expect(failure.message).not.toContain('s3cret');
+		expect(failure.url).toBe('https://otlp.example/v1/logs');
 	});
 });
 

@@ -103,6 +103,42 @@ describe('anyValue', () => {
 		expect(anyValue(-1)).toEqual({ intValue: '-1' });
 	});
 
+	/**
+	 * `Number.isInteger` is true well past the safe range, and `String`
+	 * switches to exponential notation at 1e21. Sending `"1e+21"` where OTLP
+	 * asks for a decimal string gets a `400`, which is not retried — so one
+	 * attribute anywhere in a batch of 512 would lose the whole document.
+	 */
+	test('a number past the safe range is a double, not a malformed intValue', () => {
+		expect(anyValue(1e21)).toEqual({ doubleValue: 1e21 });
+		expect(anyValue(-1e21)).toEqual({ doubleValue: -1e21 });
+
+		// Decimal, but past int64 — the collector refuses it just the same.
+		expect(anyValue(1e20)).toEqual({ doubleValue: 1e20 });
+
+		// In range, but `2 ** 60` is …846976: the digits `String` prints are
+		// not the number that was meant.
+		expect(anyValue(2 ** 60)).toEqual({ doubleValue: 2 ** 60 });
+	});
+
+	test('the safe boundary itself is still an integer', () => {
+		expect(anyValue(Number.MAX_SAFE_INTEGER)).toEqual({
+			intValue: '9007199254740991',
+		});
+		expect(anyValue(Number.MIN_SAFE_INTEGER)).toEqual({
+			intValue: '-9007199254740991',
+		});
+	});
+
+	test('nothing that takes the intValue branch is exponential', () => {
+		for (const value of [0, 1, -1, 1e15, 2 ** 53 - 1]) {
+			const tagged = anyValue(value);
+			if (tagged.intValue !== undefined) {
+				expect(tagged.intValue).not.toContain('e');
+			}
+		}
+	});
+
 	test('null is the unset value, not the text "null"', () => {
 		expect(anyValue(null)).toEqual({});
 	});

@@ -16,11 +16,11 @@ import {
 	span,
 	withTelemetry,
 } from '@nxgt/telemetry';
-import { otlpExporter } from './otlp';
 import type {
 	ExportLogsServiceRequest,
 	ExportTraceServiceRequest,
-} from './wire';
+} from '../wire/documents';
+import { otlpExporter } from './otlp';
 
 const RESOURCE: Resource = {
 	service: 'checkout',

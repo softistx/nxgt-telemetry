@@ -14,19 +14,25 @@ export const BODY_LIMIT = 500;
  * this package would answer false.
  */
 export abstract class OtlpError extends Error {
-	readonly endpoint: string;
+	/**
+	 * The request URL — the endpoint and the path — **with any credentials
+	 * removed**. A vendor's collector URL carries its key in the userinfo or
+	 * the query string often enough that a failure must not be the thing that
+	 * writes it to a log.
+	 */
+	readonly url: string;
 	readonly signal: OtlpSignal;
 	/** How many requests were made, including the one that failed. */
 	readonly attempts: number;
 
 	constructor(
 		message: string,
-		endpoint: string,
+		url: string,
 		signal: OtlpSignal,
 		attempts: number,
 	) {
 		super(message);
-		this.endpoint = endpoint;
+		this.url = url;
 		this.signal = signal;
 		this.attempts = attempts;
 	}
@@ -42,14 +48,14 @@ export class OtlpUnreachableError extends OtlpError {
 	readonly cause: unknown;
 
 	constructor(
-		endpoint: string,
+		url: string,
 		signal: OtlpSignal,
 		attempts: number,
 		cause: unknown,
 	) {
 		super(
-			`[telemetry] ${endpoint} did not answer for ${signal} after ${attempts} attempt(s)`,
-			endpoint,
+			`[telemetry] ${url} did not answer for ${signal} after ${attempts} attempt(s)`,
+			url,
 			signal,
 			attempts,
 		);
@@ -69,15 +75,15 @@ export class OtlpRefusedError extends OtlpError {
 	readonly body: string;
 
 	constructor(
-		endpoint: string,
+		url: string,
 		signal: OtlpSignal,
 		attempts: number,
 		status: number,
 		body: string,
 	) {
 		super(
-			`[telemetry] ${endpoint} refused ${signal} with ${status} after ${attempts} attempt(s): ${body}`,
-			endpoint,
+			`[telemetry] ${url} refused ${signal} with ${status} after ${attempts} attempt(s): ${body}`,
+			url,
 			signal,
 			attempts,
 		);
@@ -98,15 +104,15 @@ export class OtlpRejectedError extends OtlpError {
 	readonly body: string;
 
 	constructor(
-		endpoint: string,
+		url: string,
 		signal: OtlpSignal,
 		attempts: number,
 		status: number,
 		body: string,
 	) {
 		super(
-			`[telemetry] ${endpoint} rejected ${signal} with ${status}: ${body}`,
-			endpoint,
+			`[telemetry] ${url} rejected ${signal} with ${status}: ${body}`,
+			url,
 			signal,
 			attempts,
 		);

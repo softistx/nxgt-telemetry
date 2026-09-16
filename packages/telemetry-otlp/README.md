@@ -60,6 +60,7 @@ gateway that mounts OTLP somewhere else.
 | `gzip` | `true` | compress a document over 1 KiB |
 | `onPartialSuccess` | — | called when the collector kept the request but not every record |
 | `fetch` | global | for a specs double, or an application that routes its own traffic |
+| `sleep` | `setTimeout` | how the backoff waits. For specs; the default does not hold the process open |
 
 ## A mixed batch is two requests
 
@@ -82,9 +83,17 @@ request to fail.
 
 A rejection is not retried because sending the same bytes again gets the same
 answer: the collector is saying the request is wrong, not that it is busy. All
-three carry `endpoint`, `signal` (`'logs'` or `'traces'`) and `attempts`; the
-two that had an answer carry its `status` and the first 500 characters of its
-body.
+three carry `url`, `signal` (`'logs'` or `'traces'`) and `attempts`; the two
+that had an answer carry its `status` and the first 500 characters of its body.
+
+`url` is the **full request URL** — the endpoint plus the path — with its
+userinfo, query string and fragment removed. A vendor hands out a collector URL
+with the key in one of those often enough that a failure must not be the thing
+that writes it to a log, and a failure is exactly what `onExportError` logs.
+
+When both documents fail, for different reasons, both are reported: they go to
+two paths, and a `400` on one with a refused connection on the other is not one
+outage. Two failures arrive as an `AggregateError`; one arrives on its own.
 
 ```ts
 createTelemetry('checkout', {
@@ -152,12 +161,13 @@ The converter is exported — `logsRequest`, `tracesRequest`, `otlpResource`,
 | `DEFAULT_LOGS_PATH`, `DEFAULT_TRACES_PATH` | `/v1/logs`, `/v1/traces` |
 | `DEFAULT_TIMEOUT`, `DEFAULT_ATTEMPTS`, `DEFAULT_BACKOFF` | `10_000`, `3`, `500` |
 | `COMPRESSION_FLOOR` | `1024` — below it, compressing costs more than it saves |
+| `Transport`, `post`, `encode`, `safeUrl`, `wait` | the transport, for a collector this package does not reach |
 
 ### Failures
 
 | | |
 | --- | --- |
-| `OtlpError` | the shared base: `endpoint`, `signal`, `attempts` |
+| `OtlpError` | the shared base: `url`, `signal`, `attempts` |
 | `OtlpUnreachableError` | no answer; carries the `cause` `fetch` threw |
 | `OtlpRefusedError` | a retryable status that kept coming back; `status`, `body` |
 | `OtlpRejectedError` | a status that will not change; `status`, `body` |
@@ -185,6 +195,12 @@ the specification.
 
 ## Traps
 
+- **A whole number past `Number.MAX_SAFE_INTEGER` crosses as a `doubleValue`,
+  not an `intValue`.** `Number.isInteger` is true well past the safe range, and
+  `String` switches to exponential notation at 1e21 — so `"1e+21"` where OTLP
+  asks for a decimal string, or the wrong last digits where it does not. Past
+  the safe range a double is all the precision the value had anyway. Put a real
+  64-bit identifier in a string attribute.
 - **`nanos` goes through `BigInt`, and has to.** `Date.now() * 1e6` passed
   `Number.MAX_SAFE_INTEGER` in 2001, so the float path answers the same instant
   for two signals a microsecond apart. That is also why the field is text on the

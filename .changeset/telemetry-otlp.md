@@ -24,6 +24,16 @@ bytes would get the same answer; no answer at all is `OtlpUnreachableError`. A
 `partialSuccess` reaches `onPartialSuccess` and is not retried either — the
 collector already accepted everything else.
 
+A whole number crosses as an `intValue` only inside the safe range: past it,
+`String` switches to exponential notation and the digits stop being the number
+that was meant, and a collector answers `400` — which is not retried, so one
+attribute would lose the whole document. Past the safe range it is a
+`doubleValue`, which is all the precision the value had anyway.
+
+A failure reports the request URL with its userinfo, query string and fragment
+removed: a vendor's collector URL carries its key in one of those often enough
+that a failure must not be the thing that logs it.
+
 The conversion is exported on its own — `logsRequest`, `tracesRequest`,
 `otlpResource`, `anyValue`, `nanos` — so another transport can reuse it.
 Instants go through `BigInt`: `Date.now() * 1e6` passed

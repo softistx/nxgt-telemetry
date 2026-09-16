@@ -4,12 +4,16 @@
  * tsc fails on the unused directive.
  */
 
-import type { AttributeValue, Exporter } from '@nxgt/telemetry';
-import { anyValue, nanos } from '../../src/convert';
-import type { OtlpRefusedError, OtlpRejectedError } from '../../src/errors';
-import type { OtlpExporterOptions, PartialSuccessReport } from '../../src/otlp';
-import { otlpExporter } from '../../src/otlp';
-import type { AnyValue } from '../../src/wire';
+import type { AttributeValue, Exporter, Resource } from '@nxgt/telemetry';
+import type {
+	OtlpRefusedError,
+	OtlpRejectedError,
+} from '../../src/export/errors';
+import type { OtlpExporterOptions } from '../../src/export/otlp';
+import { otlpExporter } from '../../src/export/otlp';
+import type { PartialSuccessReport } from '../../src/export/transport';
+import { anyValue, logsRequest, nanos } from '../../src/wire/convert';
+import type { AnyValue } from '../../src/wire/documents';
 
 // It is an `Exporter`, which is the whole point: it goes in the same list as
 // `consoleExporter()`.
@@ -81,12 +85,31 @@ void at;
 const asNumber: number = nanos(0);
 void asNumber;
 
+// The converter takes a batch of signals, and refuses anything else: a
+// transport that reuses it cannot hand it a half-built record.
+declare const resource: Resource;
+void logsRequest(resource, []);
+
+// @ts-expect-error — a batch is signals, not the shapes they are made of
+void logsRequest(resource, [{ type: 'log', name: 'charged' }]);
+
+// @ts-expect-error — the resource comes first, and it is not optional
+void logsRequest([]);
+
 // The errors carry what a handler needs to decide whether to care.
 declare const refused: OtlpRefusedError;
 const status: number = refused.status;
 const attempts: number = refused.attempts;
 void status;
 void attempts;
+
+// The URL a failure reports has had its credentials removed; there is no field
+// carrying the raw one.
+const url: string = refused.url;
+void url;
+
+// @ts-expect-error — it is `url`, the full request URL, not the endpoint option
+void refused.endpoint;
 
 // @ts-expect-error — the three errors are distinct classes, not one with a flag
 const rejected: OtlpRejectedError = refused;
