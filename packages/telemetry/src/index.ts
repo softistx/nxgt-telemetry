@@ -1,4 +1,9 @@
 export * from './attributes/attributes';
+export * from './context/current';
+export * from './export/console';
+export * from './export/exporter';
+export type { PipelineOptions } from './export/pipeline';
 export * from './model/signal';
+export * from './telemetry/telemetry';
 export * from './trace/ids';
 export * from './trace/sampler';
