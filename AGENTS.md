@@ -129,6 +129,19 @@ and the READMEs say so.
 core by `workspace:^` and imports it by its published name; there is no tsconfig
 `paths` to it and no relative import into it.
 
+**The core is a `dependencies` of each integration, not a peer, and that is
+deliberate.** A required peer would be the stricter guarantee — one copy, and
+therefore one `AsyncLocalStorage` — but `verify:artifacts` refuses a required
+peer on a package that is on no registry, which is exactly where
+`@nxgt/telemetry` is until the first release. `workspace:^` publishes as
+`^0.1.0`, so a consumer on any overlapping range resolves to one copy anyway.
+The residual risk is real and worth knowing: a consumer who pins
+`@nxgt/telemetry` to a range that stops overlapping gets **two** copies, two
+storages, and `currentSpan()` answering `undefined` inside a span — with no
+error message, because nothing is wrong at the type level. Revisit this once
+the core is published: a required peer is then allowed, and it is the better
+answer.
+
 - **The core's `dependencies` is empty and stays empty**, and so is its
   `devDependencies` apart from `@types/bun`. [Standard
   Schema](https://standardschema.dev) is a contract of types with no runtime, so
@@ -324,11 +337,13 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **237 pass, 0 fail**: `@nxgt/telemetry` 232, scripts 5. It
-runs one process per package, then the scripts' specs. Treat any failure as
-yours.
+`bun run test` is **309 pass, 0 fail**: `@nxgt/telemetry` 232,
+`@nxgt/telemetry-otlp` 72, scripts 5. It runs one process per package, then the
+scripts' specs. Treat any failure as yours.
 
 `@nxgt/telemetry` is complete: the vocabulary, the root, the context, the
 pipeline, `span`/`continuing`, the logger, and the console, JSON-lines and file
-exporters. The five integration packages are being built on the `feat/telemetry`
-integration branch, and nothing has been published yet.
+exporters. `@nxgt/telemetry-otlp` is complete: the two documents, the transport,
+the retry policy and the three failures. The four remaining integration packages
+are being built on the `feat/telemetry` integration branch, and nothing has been
+published yet.
