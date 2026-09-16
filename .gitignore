@@ -1,0 +1,31 @@
+# dependencies
+node_modules
+
+# build output
+dist
+*.tgz
+*.tsbuildinfo
+
+# logs
+logs
+*.log
+
+# coverage
+coverage
+*.lcov
+
+# caches
+.cache
+.temp
+.tmp
+
+# OS / editors
+.DS_Store
+.idea
+.vscode/*
+!.vscode/settings.json
+
+# environment — a real value never lands in git
+.env
+.env.local
+.env.*.local

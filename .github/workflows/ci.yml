@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    # `feat/**` too: an effort built with large-feature-branch-workflow merges
+    # each slice into its integration branch `feat/<slug>`, and those slices
+    # are merged without waiting for a human. Without this they merged with no
+    # CI at all — no tests, no artifact check.
+    branches: [develop, main, 'feat/**']
+
+jobs:
+  ci:
+    name: CI
+    # GitHub-hosted: this repository is public, so the minutes are free and
+    # unlimited.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # `changeset status --since=origin/develop` needs the base branch.
+          fetch-depth: 0
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Lint code
+        run: biome ci
+      # Build FIRST. Every package's `exports` points at `./dist/*`, so on a
+      # clean checkout a package that imports a sibling resolves it to nothing
+      # and typecheck reports phantom TS2307s. A developer's tree always has a
+      # stale `dist/` lying around, which hides this locally — it only ever
+      # shows up in CI. `bun run --filter` builds in dependency order, so
+      # building from nothing works.
+      - name: Build packages
+        run: bun run build
+      - name: Type checking
+        run: bun run typecheck
+      # @nxgt/telemetry-mongo's specs start a real mongod: retention is a TTL
+      # index, and nothing fake answers how Mongo refuses to redefine one.
+      # mongodb-memory-server downloads the binary on the first start; the
+      # version is pinned in the file this key hashes.
+      - name: Cache the mongod binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/mongodb
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/telemetry-mongo/test/server.ts') }}
+      - name: Run tests
+        run: bun run test
+      # The build exits 0 on packages that throw the instant they are imported —
+      # it happened three times in nxgt-core. This packs them, installs them as
+      # a consumer does and imports every declared subpath.
+      - name: Verify the built artifacts load
+        run: bun run verify:artifacts
+      # A change to a package without a changeset is a change that never
+      # reaches a consumer: the release workflow has nothing to version.
+      #
+      # Except on the release branch itself. "Version packages" is the PR that
+      # *consumes* the changesets: it rewrites every version, deletes the
+      # `.changeset/*.md` that justified them, and so trips this check on its
+      # own output. Requiring a changeset there would mean requiring one for
+      # the act of releasing.
+      - name: Changeset present
+        if: github.head_ref != 'changeset-release/develop'
+        run: bun run changeset:status

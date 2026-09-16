@@ -1,0 +1,14 @@
+# Bun is the package manager here, so registry configuration lives in bunfig,
+# not in a .npmrc.
+#
+# Nothing is needed to *install* @nxgt/*: they are public on npmjs, and that is
+# the reason this scope is not on GitHub Packages, which demands a token even
+# for public packages. The token below is only ever used to publish.
+#
+# `$NPM_TOKEN` is read from the environment and never committed. If it is
+# unset, installs still work — Bun simply omits the credential. This is the one
+# place a `.npmrc` gets it wrong: there, an unset variable expands to an EMPTY
+# token, which is sent as an Authorization header and answered with a 401, and
+# a project .npmrc silently overrides `npm login`.
+[install.scopes]
+"@nxgt" = { url = "https://registry.npmjs.org", token = "$NPM_TOKEN" }

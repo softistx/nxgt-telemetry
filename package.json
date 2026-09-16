@@ -1,0 +1,33 @@
+{
+	"name": "nxgt-telemetry",
+	"private": true,
+	"type": "module",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "bun run --filter './packages/*' build",
+		"typecheck": "bun run typecheck:scripts && bun run --filter './packages/*' typecheck",
+		"typecheck:scripts": "tsc --noEmit -p scripts/tsconfig.json",
+		"test": "bun run --filter './packages/*' test && bun test scripts",
+		"check": "biome check",
+		"format": "biome format",
+		"lint": "biome lint",
+		"changeset": "changeset",
+		"changeset:version": "changeset version",
+		"changeset:publish": "bun run build && bun run verify:artifacts && bun run scripts/publish.ts",
+		"verify:artifacts": "bun run scripts/verify-artifacts.ts",
+		"changeset:status": "changeset status --since=origin/develop"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.9",
+		"@changesets/changelog-github": "^1.0.1",
+		"@changesets/cli": "^3.0.1",
+		"@types/bun": "^1.4.0",
+		"typescript": "~6.0.3"
+	},
+	"overrides": {
+		"typescript": "~6.0.3"
+	},
+	"packageManager": "bun@1.4.2"
+}

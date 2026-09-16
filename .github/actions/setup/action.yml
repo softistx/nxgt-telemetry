@@ -1,0 +1,22 @@
+name: 'Setup'
+description: 'Common setup steps for CI jobs'
+
+runs:
+  using: 'composite'
+  steps:
+    # GitHub-hosted runners carry no Bun, and the version must match the one
+    # the lockfile was written with.
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.4.2
+    - name: Install dependencies
+      # No token: @nxgt/* are public on npmjs, and installing them needs no
+      # authentication. Only the release job authenticates, through bunfig.toml
+      # reading NPM_TOKEN.
+      run: bun i --frozen-lockfile
+      shell: bash
+    - name: Setup Biome
+      uses: biomejs/setup-biome@v2
+      with:
+        version: latest

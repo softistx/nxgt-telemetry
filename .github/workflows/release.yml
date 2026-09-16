@@ -1,0 +1,55 @@
+name: Release
+
+# Every consumer of these packages installs a published version, so a merge to
+# develop that changes a package is only half a change until it is on the
+# registry. This workflow is the other half: it turns the changesets sitting in
+# .changeset/ into version bumps, then publishes.
+#
+# It opens a "Version Packages" pull request rather than publishing straight
+# from develop; merging that PR is what releases. That keeps the version bump
+# and the changelog reviewable, and keeps an accidental merge from publishing.
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+
+jobs:
+  release:
+    name: Release
+    # GitHub-hosted: this repository is public, so the minutes are free and
+    # unlimited.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Build packages
+        run: bun run build
+      # No npmrc step: `bunfig.toml` reads $NPM_TOKEN from the environment.
+      # v2 of the action no longer writes one from NPM_TOKEN either.
+      - name: Version or publish
+        uses: changesets/action@v2
+        with:
+          version-script: bun run changeset:version
+          publish-script: bun run changeset:publish
+          pr-title: 'chore: Version packages'
+          commit-message: 'chore: Version packages'
+          # v2 ignores GITHUB_TOKEN in env for its own GitHub API calls.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # changelog-github still reads GITHUB_TOKEN while versioning.
+          # NPM_TOKEN publishes, read through bunfig.toml.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
