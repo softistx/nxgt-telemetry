@@ -21,7 +21,7 @@ import {
 } from '@nxgt/telemetry';
 import { MongoClient } from 'mongodb';
 import { startMongo, type TestServer } from '../../test/server';
-import { DRIVER_COMMANDS, instrumentMongo } from './commands';
+import { DRIVER_COMMANDS, instrumentMongo, MAX_IN_FLIGHT } from './commands';
 
 let server: TestServer;
 let watched: MongoClient;
@@ -202,6 +202,47 @@ describe('where the span hangs', () => {
 		expect(spans()).toHaveLength(0);
 	});
 
+	/**
+	 * A command with nothing above it *is* a root, so it asks the sampler
+	 * exactly as `span()` would — this is the one place in the package that
+	 * asks it at all.
+	 */
+	test('a command that is its own root asks the sampler', async () => {
+		const telemetry = createTelemetry('checkout', {
+			exporters: [collecting()],
+			batch: 1,
+			sampler: neverSample,
+		});
+		stop = instrumentMongo(watched, { telemetry });
+
+		await orders().insertOne({ id: 'o-1' });
+		await telemetry.close();
+
+		expect(spans()).toHaveLength(0);
+	});
+
+	/**
+	 * Instrumentation must not become the reason a query fails, and a span kept
+	 * is the answer that loses nothing.
+	 */
+	test('a sampler that throws keeps the span', async () => {
+		const telemetry = createTelemetry('checkout', {
+			exporters: [collecting()],
+			batch: 1,
+			sampler: {
+				sample(): boolean {
+					throw new Error('the sampler is broken');
+				},
+			},
+		});
+		stop = instrumentMongo(watched, { telemetry });
+
+		await orders().insertOne({ id: 'o-1' });
+		await telemetry.close();
+
+		expect(spans().some((one) => one.name.startsWith('insert'))).toBe(true);
+	});
+
 	test('two concurrent requests do not take each other commands', async () => {
 		const telemetry = instance();
 		stop = instrumentMongo(watched, { telemetry });
@@ -356,5 +397,75 @@ describe('alongside the logger', () => {
 		expect(written?.type === 'log' && written.span?.traceId).toBe(
 			inserted?.context.traceId,
 		);
+	});
+});
+
+/**
+ * Two things the driver does but not on demand: it aborts a command, and it
+ * drops a connection between the start of a command and its reply. Both are
+ * emitted here rather than provoked — the events are the driver's own public
+ * shape, and waiting for a real dropped socket would make the suite a race.
+ */
+describe('what the driver reports but a test cannot provoke', () => {
+	function begin(requestId: number): void {
+		watched.emit('commandStarted', {
+			requestId,
+			databaseName: 'nxgt-telemetry',
+			commandName: 'find',
+			command: { find: 'orders' },
+			address: '127.0.0.1:27017',
+			connectionId: 1,
+		} as never);
+	}
+
+	/**
+	 * A dashboard that counts an abort as a failure is a dashboard nobody
+	 * trusts. It is the same rule `@nxgt/telemetry-httpyz` applies to a
+	 * timeout.
+	 */
+	test('an aborted command is cancelled, not an error', async () => {
+		const telemetry = instance();
+		stop = instrumentMongo(watched, { telemetry });
+
+		begin(90_001);
+		const aborted = new Error('The operation was aborted');
+		aborted.name = 'AbortError';
+		watched.emit('commandFailed', {
+			requestId: 90_001,
+			failure: aborted,
+			duration: 3,
+		} as never);
+		await telemetry.close();
+
+		const found = spans().find((one) => one.name === 'find orders');
+		expect(found?.status).toBe('cancelled');
+	});
+
+	/**
+	 * A command that never ends — a connection dropped between the two events —
+	 * would otherwise be remembered for ever. Forgetting it costs one span; not
+	 * forgetting it costs the process.
+	 */
+	test('the oldest in-flight command is forgotten once the map is full', async () => {
+		const telemetry = instance();
+		stop = instrumentMongo(watched, { telemetry });
+
+		begin(1);
+		// One past the ceiling: the map fills, and the next arrival evicts.
+		for (let id = 2; id <= MAX_IN_FLIGHT + 1; id += 1) begin(id);
+
+		// The first one is gone, so its reply finds nothing to end.
+		watched.emit('commandSucceeded', {
+			requestId: 1,
+			duration: 2,
+		} as never);
+		// The one after it is still there.
+		watched.emit('commandSucceeded', {
+			requestId: 2,
+			duration: 2,
+		} as never);
+		await telemetry.close();
+
+		expect(spans()).toHaveLength(1);
 	});
 });

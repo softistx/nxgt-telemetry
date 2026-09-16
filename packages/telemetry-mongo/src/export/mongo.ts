@@ -53,15 +53,32 @@ export function mongoExporter(options: MongoExporterOptions): Exporter {
 
 	let owned: MongoClient | undefined;
 	let opening: Promise<Db> | undefined;
-	/** The retention the index on disk was last made for. */
+	/**
+	 * The retention the index on disk was last made for.
+	 *
+	 * Per exporter, and never re-read: an index dropped out of band is not
+	 * rebuilt for the life of the process. The alternative is asking Mongo for
+	 * the collection's indexes on every batch, which is a round trip per batch
+	 * to catch something nobody does by accident.
+	 */
 	let indexed: number | false | undefined;
 
 	const database = async (): Promise<Db> => {
 		if (options.db !== undefined) return options.db;
-		opening ??= open(options.uri, options.database).then((opened) => {
-			owned = opened.client;
-			return opened.db;
-		});
+		// The connection is opened once and shared, but a *failed* one is not
+		// kept: Mongo is routinely not up yet when a process boots, and a
+		// rejected promise left in this slot would make every later batch await
+		// the same rejection for the life of the process.
+		opening ??= open(options.uri, options.database).then(
+			(opened) => {
+				owned = opened.client;
+				return opened.db;
+			},
+			(failure: unknown) => {
+				opening = undefined;
+				throw failure;
+			},
+		);
 		return opening;
 	};
 

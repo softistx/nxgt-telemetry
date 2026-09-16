@@ -95,10 +95,11 @@ describe('writing', () => {
 	 */
 	test('a document it refuses does not cost the rest of the batch', async () => {
 		const exporter = exporting({ db: server.db });
-		// A key with a dot is refused by the server, one at a time.
+		// An `_id` holding a `$`-prefixed key is what Mongo refuses here. A
+		// dotted key in `attributes` is **not** — it stores fine, and the
+		// consequence is a query one, documented in the README.
 		const refused = {
 			...log('bad'),
-			attributes: { 'a.b': 1 },
 			_id: { $bad: 1 },
 		} as unknown as Signal;
 
@@ -107,6 +108,60 @@ describe('writing', () => {
 			?.catch(() => undefined);
 
 		expect((await stored()).map((one) => one.name).sort()).toEqual(['a', 'b']);
+	});
+
+	/**
+	 * The query the README leads with. It is the whole reason `traceId` is
+	 * lifted out of `span`/`context`: without it this needs an `$or` over two
+	 * paths and an index on each.
+	 */
+	test('everything in one trace is one query by traceId', async () => {
+		const exporter = exporting({ db: server.db });
+		const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+		const context = {
+			traceId: traceId as never,
+			spanId: '00f067aa0ba902b7' as never,
+			sampled: true,
+			remote: false,
+		};
+
+		await exporter.export(RESOURCE, [
+			{ ...log('in the trace'), span: context },
+			{
+				type: 'span',
+				name: 'charge',
+				context,
+				kind: 'client',
+				startedAt: Date.UTC(2026, 8, 15, 10, 4, 22),
+				endedAt: Date.UTC(2026, 8, 15, 10, 4, 22) + 84,
+				status: 'ok',
+				attributes: {},
+				events: [],
+			},
+			log('outside it'),
+		]);
+
+		const found = await server.db
+			.collection(DEFAULT_COLLECTION)
+			.find({ traceId })
+			.toArray();
+
+		expect(found.map((one) => one.name).sort()).toEqual([
+			'charge',
+			'in the trace',
+		]);
+	});
+
+	test("a service's resource attributes reach every document", async () => {
+		const exporter = exporting({ db: server.db });
+		await exporter.export(
+			{ ...RESOURCE, attributes: { 'deployment.region': 'eu-west-1' } },
+			[log('a')],
+		);
+
+		expect((await stored())[0]?.resource).toEqual({
+			'deployment.region': 'eu-west-1',
+		});
 	});
 
 	test('a log and a span go to the same collection', async () => {
@@ -283,6 +338,33 @@ describe('when Mongo is not there', () => {
 
 		await expect(exporter.export(RESOURCE, [log('a')])).rejects.toThrow();
 		await exporter.close?.();
+	});
+
+	/**
+	 * Mongo is routinely not up yet when a process boots. A rejected promise
+	 * kept in the connection slot would make every later batch await the same
+	 * rejection for the life of the process — telemetry gone permanently,
+	 * silently, long after the database came back.
+	 *
+	 * The moving `uri` is what makes the difference observable: a second batch
+	 * that merely rejects again proves nothing, because replaying the cached
+	 * failure rejects too.
+	 */
+	test('a first connection that failed does not poison the exporter', async () => {
+		let uri = 'mongodb://127.0.0.1:1/x?serverSelectionTimeoutMS=200';
+		const exporter = mongoExporter({
+			get uri() {
+				return uri;
+			},
+			database: 'nxgt-telemetry',
+		} as never);
+
+		await expect(exporter.export(RESOURCE, [log('a')])).rejects.toThrow();
+		uri = server.uri;
+		await exporter.export(RESOURCE, [log('b')]);
+		await exporter.close?.();
+
+		expect((await stored()).map((one) => one.name)).toEqual(['b']);
 	});
 });
 

@@ -316,7 +316,7 @@ publishes to npm.
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
 | `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both |
 | the span-shaped fields an integration builds (`http.request.method`, `url.path`, status mapping) in `-hono` and `-httpyz` | one is a server span and the other a client span, and they disagree where it matters: a client call fails at **400**, a server request at **500**. A shared builder would make each depend on the other's host. **A name they both set must mean the same thing** — `server.address` is the host without its port on both sides, and `server.port` carries it — because a server span and the client span that called it end up on the same dashboard |
-| `SERVER_ADDRESS` and `SERVER_PORT` declared again in `-mongo` | it is the same name and the same meaning — the host without its port, and the port beside it — but the constant is three lines and the alternative is `-mongo` importing `-httpyz`, which is the rule above. One integration never imports another. **The meaning is what must stay in step, not the declaration** |
+| `SERVER_ADDRESS` and `SERVER_PORT` declared again in `-mongo/src/attributes/db.ts` | it is the same name and the same meaning — the host without its port, and the port beside it — but the constant is three lines and the alternative is `-mongo` importing `-httpyz`, which is the rule above. One integration never imports another. **The meaning is what must stay in step, not the declaration** |
 | the `guarded` hook wrapper, and `always`/`nothing`, in `-hono` and `-httpyz` | twelve lines that touch neither host. Each integration stays installable on its own, and the core has no hooks to justify owning it. Change both when the reason applies to both |
 
 ## Conventions
@@ -343,9 +343,9 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **439 pass, 0 fail**: `@nxgt/telemetry` 238,
+`bun run test` is **466 pass, 0 fail**: `@nxgt/telemetry` 238,
 `@nxgt/telemetry-otlp` 72, `@nxgt/telemetry-hono` 44,
-`@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 40, scripts 5. It runs one
+`@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67, scripts 5. It runs one
 process per package, then the scripts' specs. Treat any failure as yours.
 
 `@nxgt/telemetry-mongo`'s specs run against a **real mongod**, downloaded once by

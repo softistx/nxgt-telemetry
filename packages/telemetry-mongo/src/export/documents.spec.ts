@@ -91,8 +91,65 @@ describe('documentOf', () => {
 		expect(document.attributes).toEqual({ orderId: 'o-1' });
 	});
 
-	test('a resource key never replaces one the signal already had', () => {
-		// `service` is stamped; `name` belongs to the signal and stays its own.
-		expect(documentOf(RESOURCE, LOG).name).toBe('checkout.charged');
+	/**
+	 * The one query anybody actually writes is "everything in this trace", and
+	 * the trace id lives at two different paths — `span.traceId` on a log,
+	 * `context.traceId` on a span. Lifted, it is one field and one index.
+	 */
+	test('lifts traceId and spanId to the top level, from either kind', () => {
+		expect(documentOf(RESOURCE, SPAN)).toMatchObject({
+			traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+			spanId: '00f067aa0ba902b7',
+		});
+
+		expect(documentOf(RESOURCE, { ...LOG, span: SPAN.context })).toMatchObject({
+			traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+			spanId: '00f067aa0ba902b7',
+		});
+	});
+
+	test('a log written outside any span carries no traceId', () => {
+		const document = documentOf(RESOURCE, LOG);
+
+		expect(document).not.toHaveProperty('traceId');
+		expect(document).not.toHaveProperty('spanId');
+	});
+
+	/**
+	 * `@nxgt/telemetry-otlp` puts them on every export, and a service that
+	 * swaps one exporter for the other must not lose `deployment.region` with
+	 * no error and no note.
+	 */
+	test("stamps the resource's attributes, under `resource`", () => {
+		const document = documentOf(
+			{ ...RESOURCE, attributes: { 'deployment.region': 'eu-west-1' } },
+			LOG,
+		);
+
+		expect(document.resource).toEqual({ 'deployment.region': 'eu-west-1' });
+	});
+
+	test('omits `resource` when there are no resource attributes', () => {
+		expect(documentOf(RESOURCE, LOG)).not.toHaveProperty('resource');
+	});
+
+	/**
+	 * Which is why they are a sub-document rather than flattened beside
+	 * `service`: a resource attribute is named by whoever configured the
+	 * service, and one called `name` flattened here would overwrite the
+	 * signal's own.
+	 */
+	test('a resource attribute cannot overwrite a field of the signal', () => {
+		const document = documentOf(
+			{ ...RESOURCE, attributes: { name: 'not the log name', type: 'span' } },
+			LOG,
+		);
+
+		expect(document.name).toBe('checkout.charged');
+		expect(document.type).toBe('log');
+		expect(document.resource).toEqual({
+			name: 'not the log name',
+			type: 'span',
+		});
 	});
 });

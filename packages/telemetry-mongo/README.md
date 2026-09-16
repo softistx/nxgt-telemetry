@@ -31,16 +31,18 @@ db.telemetry.find({ traceId: '4bf92f3577b34da6a3ce929d0e0e4736' }).sort({ at: 1 
 db.telemetry.find({ type: 'span', status: 'error', at: { $gte: ISODate('…') } })
 ```
 
-Three things are changed on the way in, and nothing else:
+Four things are changed on the way in, and nothing else:
 
 | | |
 | --- | --- |
 | every instant | a BSON `Date` — an epoch number is neither a range nor expirable |
-| the resource | stamped on each document: `service`, `version`, `environment` |
+| the resource | stamped on each document: `service`, `version`, `environment`, and its attributes under `resource` |
+| `traceId`, `spanId` | lifted to the top level — they live at `span.traceId` on a log and `context.traceId` on a span, so the query above would otherwise need an `$or` over two paths and an index on each |
 | `at` | on **both** kinds. A span carries its start, so one index covers both |
 
-That last one is why a TTL index works at all: a collection here is shared by
-every service that writes to it, which is the opposite of a log file.
+The last one is why a TTL index works at all, and the second is why it is worth
+it: a collection here is shared by every service that writes to it, which is the
+opposite of a log file.
 
 ### Retention is an index
 
@@ -138,8 +140,9 @@ full of them is a trace nobody reads.
 | `ensureRetention(db, collection, retention)` | the index, if you want it eagerly |
 | `documentOf(resource, signal)`, `SignalDocument` | the stored shape |
 | `instrumentMongo(client, options)`, `InstrumentOptions` | the instrumentation |
-| `collectionOf(event)` | the collection a command is about |
 | `DRIVER_COMMANDS`, `MAX_IN_FLIGHT` | what is skipped, and the in-flight ceiling |
+| `commandAttributes(event)`, `commandName(event)` | what a command's span carries, and what it is called |
+| `collectionOf(event)`, `splitAddress(address)` | the collection a command is about, and a host and port |
 | `DB_SYSTEM`, `DB_NAMESPACE`, `DB_COLLECTION`, `DB_OPERATION`, `SERVER_ADDRESS`, `SERVER_PORT`, `MONGODB` | the attribute names |
 
 ## Traps
@@ -149,8 +152,25 @@ full of them is a trace nobody reads.
   exporter's own `insertMany` is a command, which becomes a span, which is
   exported… Use a separate client for the exporter — the `uri` form — or
   exclude the telemetry collection with `traced`.
-- **`insertMany` is unordered.** One document Mongo refuses — a key it will not
-  take, a size over the limit — must not cost the 511 behind it.
+- **`insertMany` is unordered.** One document Mongo refuses — an `_id` holding
+  a `$`-prefixed key, a size over the limit — must not cost the 511 behind it.
+- **A dotted attribute name is not a path.** Every span here carries keys like
+  `db.system.name`, and `find({ 'attributes.db.system.name': 'mongodb' })` reads
+  that as a nested path and matches nothing. The document is fine; the query
+  needs `$getField`, or `$expr`:
+  ```js
+  db.telemetry.find({ $expr: { $eq: [{ $getField: { field: 'db.system.name', input: '$attributes' } }, 'mongodb'] } })
+  ```
+  It is the same for `resource`. `traceId`, `spanId`, `at`, `service` and
+  `status` are plain top-level fields precisely because they are the ones
+  anybody queries.
+- **A first connection that fails is retried on the next batch.** Mongo is
+  routinely not up yet when a process boots, so a failed `uri` connection is not
+  cached; the batch after it opens a fresh one. Each failure reaches
+  `onExportError` and nothing else.
+- **The TTL index is checked once per exporter.** An index dropped out of band
+  is not rebuilt for the life of the process — the alternative is a round trip
+  per batch to catch something nobody does by accident.
 - **A span is recorded, not opened.** Monitoring gives a start event and an end
   event, not a block to run inside, so `currentSpan()` inside a query callback
   is still the *caller's* span. The command's parent is whatever was open when
