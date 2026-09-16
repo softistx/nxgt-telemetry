@@ -15,8 +15,10 @@ import type { Resource, Signal } from '../model/signal';
  *   `onExportError` and the next exporter still receives the batch: a
  *   collector being down is not a reason for a request to fail.
  *
- * The `resource` comes with every call rather than through a start hook, so an
- * exporter can be stateless and can be handed to two telemetries.
+ * The `resource` comes with every call rather than through a start hook, rather
+ * than being fixed when the exporter is built — which is what lets one exporter
+ * serve two telemetries. Most exporters here hold nothing; `fileExporter` is
+ * the exception and says so.
  */
 export interface Exporter {
 	/**

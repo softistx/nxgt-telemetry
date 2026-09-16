@@ -324,7 +324,7 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **228 pass, 0 fail**: `@nxgt/telemetry` 223, scripts 5. It
+`bun run test` is **237 pass, 0 fail**: `@nxgt/telemetry` 232, scripts 5. It
 runs one process per package, then the scripts' specs. Treat any failure as
 yours.
 

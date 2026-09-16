@@ -107,8 +107,11 @@ describe('rolledOf', () => {
 	test('finds the rolled files, newest first, and leaves everything else', () => {
 		expect(rolledOf('logs/telemetry.jsonl', names)).toEqual([
 			'telemetry-20260915-100422.jsonl',
-			'telemetry-20260914-100422.jsonl.gz',
+			// `-1` is newer than the unsuffixed name of the same second: the
+			// unsuffixed one is written first, and the collision number only
+			// climbs.
 			'telemetry-20260914-100422-1.jsonl',
+			'telemetry-20260914-100422.jsonl.gz',
 			'telemetry-20260913-100422.jsonl',
 		]);
 	});
@@ -123,6 +126,45 @@ describe('rolledOf', () => {
 		expect(rolledOf('logs/telemetry.jsonl', names)).not.toContain(
 			'audit-20260915-100422.jsonl',
 		);
+	});
+
+	/**
+	 * Sorting the names as text is wrong twice over inside one second: the
+	 * collision number is not fixed-width, so `-9` sorts after `-12`, and the
+	 * unsuffixed name — the oldest of that second — sorts after every suffixed
+	 * one, because `.` is above `-`. Both mistakes put the newest archives at
+	 * the end of the list, which is exactly where `keep` deletes from.
+	 */
+	test('orders a second of collisions by number, not as text', () => {
+		const collided = [
+			'telemetry-20260915-100422.jsonl',
+			'telemetry-20260915-100422-9.jsonl',
+			'telemetry-20260915-100422-12.jsonl',
+			'telemetry-20260915-100422-3.jsonl',
+		];
+
+		expect(rolledOf('logs/telemetry.jsonl', collided)).toEqual([
+			'telemetry-20260915-100422-12.jsonl',
+			'telemetry-20260915-100422-9.jsonl',
+			'telemetry-20260915-100422-3.jsonl',
+			'telemetry-20260915-100422.jsonl',
+		]);
+	});
+
+	/**
+	 * `compress` writes the archive and then removes the plain file. If that
+	 * removal failed, the two names are still one period — counting them twice
+	 * would make `keep: 7` hold six.
+	 */
+	test('folds an archive and its plain twin into one period', () => {
+		const twinned = [
+			'telemetry-20260915-100422.jsonl',
+			'telemetry-20260915-100422.jsonl.gz',
+		];
+
+		expect(rolledOf('logs/telemetry.jsonl', twinned)).toEqual([
+			'telemetry-20260915-100422.jsonl.gz',
+		]);
 	});
 });
 
@@ -145,5 +187,46 @@ describe('prunable', () => {
 
 	test('keeping more than there are deletes nothing', () => {
 		expect(prunable('logs/telemetry.jsonl', names, 10)).toEqual([]);
+	});
+
+	test('never offers the live file, or another service beside it', () => {
+		expect(
+			prunable('logs/telemetry.jsonl', ['telemetry.jsonl', 'audit.jsonl'], 0),
+		).toEqual([]);
+	});
+
+	/**
+	 * The one case where more names are deleted than `rolledOf` lists: the
+	 * plain twin `rolledOf` folded away is still a file on disk, and pruning
+	 * the period has to take both.
+	 */
+	test('takes the plain twin of an archive it is dropping', () => {
+		const twinned = [
+			'telemetry-20260915-100422.jsonl',
+			'telemetry-20260915-100422.jsonl.gz',
+			'telemetry-20260916-100422.jsonl',
+		];
+
+		expect(prunable('logs/telemetry.jsonl', twinned, 1)).toEqual([
+			'telemetry-20260915-100422.jsonl',
+			'telemetry-20260915-100422.jsonl.gz',
+		]);
+	});
+
+	/**
+	 * The bug this ordering exists for: within one second, the newest archives
+	 * are the highest-numbered ones. Keeping two has to keep those, not the two
+	 * a lexical sort would have put first.
+	 */
+	test('keeps the newest of a second of collisions', () => {
+		const collided = [
+			'telemetry-20260915-100422.jsonl',
+			'telemetry-20260915-100422-9.jsonl',
+			'telemetry-20260915-100422-12.jsonl',
+		];
+
+		expect(prunable('logs/telemetry.jsonl', collided, 2)).toEqual([
+			'telemetry-20260915-100422.jsonl',
+		]);
 	});
 });

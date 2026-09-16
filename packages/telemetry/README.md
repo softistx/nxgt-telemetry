@@ -210,6 +210,13 @@ is a finished period, and a shutdown is not one.
 | `keep` | `7` | how many rolled files to keep |
 | `compress` | `false` | gzip a rolled file |
 
+**This exporter owns its path.** It is the one stateful exporter here — it
+remembers the file's size and age instead of asking the filesystem on every
+batch — so give each path exactly one `fileExporter`. Concurrent batches are
+serialised internally, and any failure throws away what it remembered, so an
+external `logrotate`, a truncation or a full disk costs the batch it happened on
+and nothing after it.
+
 Neither line format carries the resource: a file belongs to one service, so
 repeating its name on every line would be noise. An exporter that writes
 somewhere shared — `@nxgt/telemetry-mongo` — stamps it instead.
@@ -401,8 +408,10 @@ somebody wrote it.
   library's own parser rejects. That happens only when nothing is installed, and
   `isDetached(scope.context)` is the guard before injecting a header.
 - **A rolled file is named for the instant it was rolled**, not for the period
-  it covers: `telemetry-20260915-000100.jsonl` holds the 14th. The name sorts
-  correctly either way, which is what `keep` relies on.
+  it covers: `telemetry-20260915-000100.jsonl` holds the 14th. `keep` orders
+  archives by the stamp and collision number it parses out of the name, not by
+  the name as text — inside one second, `-9` is newer than `-12` as text, and
+  the unsuffixed name is the oldest of the three.
 - **A log is never sampled, a span is.** A span of an unsampled trace is not
   emitted at all — the block still runs — while its logs come out as usual,
   carrying the `traceId`. Do not read "no span" as "nothing happened".

@@ -15,8 +15,15 @@ modification time, so a service that restarts hourly still rolls once a day. An
 **empty file is never rolled** — rolling one produces an empty archive and
 resets the period, so an idle service would accumulate a directory of nothing —
 and `close()` rolls nothing, because a rolled file is a finished period and a
-shutdown is not one. `keep` prunes by name, which sorts correctly because the
-stamp is fixed-width UTC, and only ever matches this file's own archives.
+shutdown is not one. `keep` orders archives by the stamp and collision number
+it parses out of each name rather than by the name as text — inside one second
+`-9` is newer than `-12` as text — and only ever matches this file's own
+archives.
+
+`fileExporter` owns its path: it is the one stateful exporter here, so give each
+path exactly one. Concurrent batches are serialised internally, and any failure
+throws away what it remembered, so an external `logrotate`, a truncation or a
+full disk costs the batch it happened on and nothing after it.
 
 Neither line format carries the resource: a file belongs to one service.
 
