@@ -242,9 +242,19 @@ key in `exports`.
   `bun run verify:artifacts` packs every package, installs the tarballs as a
   consumer does, imports every subpath in `exports`, and rejects a manifest that
   would break an install: a `link:` or `file:` in a field a consumer resolves, a
-  **required** peer on no registry, an exact pin on a sibling, or a package that
-  is not MIT or ships no `LICENSE`. `changeset:publish` runs it, so a release
-  cannot skip it.
+  **required** peer on no registry, an exact pin on a sibling, a sibling range
+  that excludes the sibling being published, or a package that is not MIT or
+  ships no `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
+- **`bun pm pack` resolves `workspace:^` from `bun.lock`, not from the
+  sibling's `package.json`.** After `changeset version` bumps the manifests, the
+  lockfile still names the old versions until `bun install` runs — and
+  `bun install --frozen-lockfile` does not notice. That is how the five
+  integrations' 0.2.0 shipped asking for `@nxgt/telemetry@^0.1.0`, which in 0.x
+  excludes 0.2.0. `changeset:version` now runs `bun install` after versioning,
+  so the Version PR carries the refreshed lockfile, and `verify:artifacts`
+  compares each packed sibling range with the version beside it — its
+  `overrides` resolve siblings to their tarballs, which is why the install alone
+  could not see this.
 - **Build before typecheck and tests.** Every package's `exports` points at
   `./dist/*`, so on a clean checkout an integration resolves the core to nothing
   and typecheck reports a wall of phantom TS2307. CI builds first.

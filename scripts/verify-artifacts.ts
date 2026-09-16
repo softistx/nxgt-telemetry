@@ -25,6 +25,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { $ } from 'bun';
+import { type PackedManifest, siblingRangeProblems } from './sibling-ranges';
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
@@ -73,6 +74,8 @@ async function readPackages(): Promise<Pkg[]> {
  *     as a caret range, which dedupes.
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
+ *   - a **sibling range that excludes the sibling being published** — see
+ *     `sibling-ranges.ts`. The `overrides` below would otherwise hide it.
  */
 async function manifestProblems(tarballs: string[]): Promise<string[]> {
 	const problems: string[] = [];
@@ -139,6 +142,10 @@ async function manifestProblems(tarballs: string[]): Promise<string[]> {
 		}
 	}
 
+	problems.push(
+		...siblingRangeProblems(manifests as unknown as PackedManifest[]),
+	);
+
 	return problems;
 }
 
@@ -165,7 +172,8 @@ try {
 		for (const problem of problems) console.error(`  ${problem}`);
 		console.error(
 			'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
-				'on no registry, an exact pin on a sibling, or a license other than\n' +
+				'on no registry, an exact pin on a sibling, a sibling range that\n' +
+				'excludes the version published beside it, or a license other than\n' +
 				'MIT or no LICENSE shipped. See AGENTS.md.',
 		);
 		process.exit(1);
