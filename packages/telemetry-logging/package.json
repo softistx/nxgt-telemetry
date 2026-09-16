@@ -52,7 +52,7 @@
 		"@nxgt/telemetry": "workspace:^"
 	},
 	"devDependencies": {
-		"@types/bun": "^1.4.0",
+		"@types/bun": "^1.4.2",
 		"winston": "3.19.0",
 		"winston-transport": "4.9.0"
 	},
