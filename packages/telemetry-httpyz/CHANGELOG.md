@@ -1,5 +1,16 @@
 # @nxgt/telemetry-httpyz
 
+## 0.2.1
+
+### Patch Changes
+
+- [#13](https://github.com/softistx/nxgt-telemetry/pull/13) [`8b741c6`](https://github.com/softistx/nxgt-telemetry/commit/8b741c64d50ce5f9db875f6702482d0d3c15c99f) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Depend on `@nxgt/telemetry@^0.2.1`, the core released beside it. 0.2.0 was
+  published asking for `^0.1.0`, which in 0.x excludes 0.2.0, so an install
+  resolved the 0.1.0 core underneath it rather than the core it was built and
+  tested against. Upgrade to this version; do not use 0.2.0.
+- Updated dependencies [[`1c30c8a`](https://github.com/softistx/nxgt-telemetry/commit/1c30c8a84a9aab5945b3e2ba827a51047a33afb6)]:
+  - @nxgt/telemetry@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes
