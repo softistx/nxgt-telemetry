@@ -24,6 +24,93 @@ vocabulary exactly: the same severities, span kinds, statuses, `traceparent`
 rules, sampling rule and attribute names. A trace started in one and continued
 in the other is one trace.
 
+## The root
+
+```ts
+import { createTelemetry, consoleExporter, ratioSampler } from '@nxgt/telemetry';
+
+const telemetry = createTelemetry('checkout', {
+  version: '1.4.0',
+  environment: 'production',
+  sampler: ratioSampler(0.1),
+  exporters: [consoleExporter()],
+}).install();
+
+process.on('SIGTERM', () => telemetry.close());
+```
+
+`service` has no default: it is the key everything groups by, and a service
+called `unknown` is a dashboard nobody can read. `install()` makes this the
+telemetry a logger or a span finds when there is none in scope, and returns the
+instance.
+
+**`close()` must be awaited.** JavaScript cannot block, so unlike its JVM
+counterpart this one returns a promise: a process that exits without waiting
+loses its last batch, which is the batch that explains the shutdown. It races
+the drain against `drainTimeout`, so a collector that stopped answering never
+becomes the reason a process will not exit. `await using` works too.
+
+| option | default | |
+| --- | --- | --- |
+| `version`, `environment`, `attributes` | — | stamped on the resource, so every signal carries them |
+| `sampler` | `alwaysSample` | asked once, for a root span |
+| `minimum` | `'info'` | logs below this are never built. Spans are unaffected |
+| `stackTraces` | `true` | whether a recorded failure carries its stack |
+| `batch` | `512` | flush once this many signals are waiting |
+| `linger` | `1000` ms | flush this long after the first signal of a batch |
+| `drainTimeout` | `10000` ms | how long `close` waits for the backlog |
+| `onExportError` | `console.error` | a failing exporter is reported here |
+| `exporters` | `[]` | in order; a batch reaches them one after the other |
+
+## Context
+
+```ts
+import { currentSpan, currentTraceparent, withAttributes, withTelemetry } from '@nxgt/telemetry';
+
+await withAttributes({ tenant: 'acme' }, async () => {
+  // every log and span in here carries tenant=acme
+  await fetch(url, { headers: { traceparent: currentTraceparent() ?? '' } });
+});
+```
+
+The current span lives in an `AsyncLocalStorage`, and that is the whole design.
+It propagates through every `await`, every timer and every promise chain: into
+everything started inside a span, out of nothing, and correct after any number
+of suspensions. A module-level variable would look right in development and
+start attributing one request's spans to another under concurrency — a bug with
+no stack trace and no failing test, in the tool meant to make such bugs visible.
+
+It is also readable **synchronously**, which is what lets `log.info()` stay a
+plain function: a log written from a constructor, from a `catch` in ordinary
+code or from a callback still has to come out.
+
+`withTelemetry(telemetry, fn)` puts a different one in scope for the block.
+Scope wins over the installed default, which is what lets two suites in one
+process each collect their own signals.
+
+## Exporters
+
+An exporter is one function:
+
+```ts
+import type { Exporter } from '@nxgt/telemetry';
+
+const exporter: Exporter = {
+  export(resource, batch) { /* … */ },
+  async close() { /* optional */ },
+};
+```
+
+The pipeline guarantees it is called from **one consumer, never concurrently**,
+so there is nothing to synchronise and a batch's order is the order things
+happened in. It may take as long as it wants; nothing that writes a signal is
+waiting on it. If it throws, the failure goes to `onExportError` and the next
+exporter still receives the batch — a collector being down is not a reason for
+a request to fail.
+
+`consoleExporter()` is built in. `@nxgt/telemetry-otlp` and
+`@nxgt/telemetry-mongo` are the others.
+
 ## Trace identity
 
 ```ts
@@ -92,7 +179,94 @@ somebody wrote it.
 
 ## API
 
-### Trace identity
+### The root
+
+```ts
+import { createTelemetry, consoleExporter, ratioSampler } from '@nxgt/telemetry';
+
+const telemetry = createTelemetry('checkout', {
+  version: '1.4.0',
+  environment: 'production',
+  sampler: ratioSampler(0.1),
+  exporters: [consoleExporter()],
+}).install();
+
+process.on('SIGTERM', () => telemetry.close());
+```
+
+`service` has no default: it is the key everything groups by, and a service
+called `unknown` is a dashboard nobody can read. `install()` makes this the
+telemetry a logger or a span finds when there is none in scope, and returns the
+instance.
+
+**`close()` must be awaited.** JavaScript cannot block, so unlike its JVM
+counterpart this one returns a promise: a process that exits without waiting
+loses its last batch, which is the batch that explains the shutdown. It races
+the drain against `drainTimeout`, so a collector that stopped answering never
+becomes the reason a process will not exit. `await using` works too.
+
+| option | default | |
+| --- | --- | --- |
+| `version`, `environment`, `attributes` | — | stamped on the resource, so every signal carries them |
+| `sampler` | `alwaysSample` | asked once, for a root span |
+| `minimum` | `'info'` | logs below this are never built. Spans are unaffected |
+| `stackTraces` | `true` | whether a recorded failure carries its stack |
+| `batch` | `512` | flush once this many signals are waiting |
+| `linger` | `1000` ms | flush this long after the first signal of a batch |
+| `drainTimeout` | `10000` ms | how long `close` waits for the backlog |
+| `onExportError` | `console.error` | a failing exporter is reported here |
+| `exporters` | `[]` | in order; a batch reaches them one after the other |
+
+## Context
+
+```ts
+import { currentSpan, currentTraceparent, withAttributes, withTelemetry } from '@nxgt/telemetry';
+
+await withAttributes({ tenant: 'acme' }, async () => {
+  // every log and span in here carries tenant=acme
+  await fetch(url, { headers: { traceparent: currentTraceparent() ?? '' } });
+});
+```
+
+The current span lives in an `AsyncLocalStorage`, and that is the whole design.
+It propagates through every `await`, every timer and every promise chain: into
+everything started inside a span, out of nothing, and correct after any number
+of suspensions. A module-level variable would look right in development and
+start attributing one request's spans to another under concurrency — a bug with
+no stack trace and no failing test, in the tool meant to make such bugs visible.
+
+It is also readable **synchronously**, which is what lets `log.info()` stay a
+plain function: a log written from a constructor, from a `catch` in ordinary
+code or from a callback still has to come out.
+
+`withTelemetry(telemetry, fn)` puts a different one in scope for the block.
+Scope wins over the installed default, which is what lets two suites in one
+process each collect their own signals.
+
+## Exporters
+
+An exporter is one function:
+
+```ts
+import type { Exporter } from '@nxgt/telemetry';
+
+const exporter: Exporter = {
+  export(resource, batch) { /* … */ },
+  async close() { /* optional */ },
+};
+```
+
+The pipeline guarantees it is called from **one consumer, never concurrently**,
+so there is nothing to synchronise and a batch's order is the order things
+happened in. It may take as long as it wants; nothing that writes a signal is
+waiting on it. If it throws, the failure goes to `onExportError` and the next
+exporter still receives the batch — a collector being down is not a reason for
+a request to fail.
+
+`consoleExporter()` is built in. `@nxgt/telemetry-otlp` and
+`@nxgt/telemetry-mongo` are the others.
+
+## Trace identity
 
 | | |
 | --- | --- |
@@ -150,6 +324,15 @@ somebody wrote it.
 - **`ratioSampler` throws on a bad ratio**, at construction. That is the one
   place in this library that refuses an argument, and it is deliberate: it is
   not on the path that writes a signal.
+- **`close()` has to be awaited**, and a `process.exit()` before it resolves
+  loses the last batch. Nothing can block the event loop to save you from that.
+- **The queue is unbounded.** An application that outruns its collector grows an
+  array, which a heap profile shows, rather than dropping the evidence of what
+  it was doing. A bounded queue would answer back-pressure by losing signals or
+  by blocking the application, and neither is an answer.
+- **`node:async_hooks` is how the context travels.** In a browser bundle where
+  that builtin is shimmed away, everything still works but the context stops
+  propagating across `await` — pass the span explicitly there.
 
 ## License
 
