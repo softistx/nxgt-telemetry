@@ -324,11 +324,11 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **193 pass, 0 fail**: `@nxgt/telemetry` 188, scripts 5. It
+`bun run test` is **228 pass, 0 fail**: `@nxgt/telemetry` 223, scripts 5. It
 runs one process per package, then the scripts' specs. Treat any failure as
 yours.
 
-`@nxgt/telemetry` is complete apart from its file exporters: the vocabulary, the
-root, the context, the pipeline, `span`/`continuing` and the logger. The five
-integration packages are being built on the `feat/telemetry` integration branch,
-and nothing has been published yet.
+`@nxgt/telemetry` is complete: the vocabulary, the root, the context, the
+pipeline, `span`/`continuing`, the logger, and the console, JSON-lines and file
+exporters. The five integration packages are being built on the `feat/telemetry`
+integration branch, and nothing has been published yet.
