@@ -13,7 +13,7 @@ The `@nxgt/*` packages for observability, published to the public npm registry:
 | `@nxgt/telemetry-hono` | `telemetry()`: a Hono middleware that wraps the handler in one server span |
 | `@nxgt/telemetry-httpyz` | a `@nxgt/httpyz` middleware: one client span per call, `traceparent` injected |
 | `@nxgt/telemetry-mongo` | `mongoExporter` (signals behind a TTL index) and `instrumentMongo` (spans from the driver's command monitoring) |
-| `@nxgt/telemetry-logging` | the winston bridge, both directions, never both at once |
+| `@nxgt/telemetry-logging` | the winston bridge, both directions, never both at once. Nothing imports winston: the format is an object with `transform`, the transport is a `node:stream` `Writable` |
 
 It was started on 2026-09-15, on the tooling of `softistx/nxgt-data`, which took
 it from `softistx/nxgt-http`: the same build, artifact check, publish script, CI
@@ -343,10 +343,11 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **466 pass, 0 fail**: `@nxgt/telemetry` 238,
+`bun run test` is **528 pass, 0 fail**: `@nxgt/telemetry` 238,
 `@nxgt/telemetry-otlp` 72, `@nxgt/telemetry-hono` 44,
-`@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67, scripts 5. It runs one
-process per package, then the scripts' specs. Treat any failure as yours.
+`@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67,
+`@nxgt/telemetry-logging` 62, scripts 5. It runs one process per package, then
+the scripts' specs. Treat any failure as yours.
 
 `@nxgt/telemetry-mongo`'s specs run against a **real mongod**, downloaded once by
 `mongodb-memory-server-core` into `.cache/mongodb` and cached in CI on the hash of
@@ -363,5 +364,7 @@ complete: the server span, the `traceparent` continuation, the route rename and
 the context variables. `@nxgt/telemetry-httpyz` is complete: the client span,
 the outgoing header and the 400 rule. `@nxgt/telemetry-mongo` is complete: the
 exporter, its TTL retention, and command-monitoring spans.
-`@nxgt/telemetry-logging` is still to come on the `feat/telemetry` integration
-branch, and nothing has been published yet.
+`@nxgt/telemetry-logging` is complete: the format, the transport, the exporter
+and the guard against wiring both halves at one logger. Every package of the
+effort is written; what is left on the `feat/telemetry` integration branch is
+the documentation slice and the end-to-end. Nothing has been published yet.
