@@ -343,10 +343,10 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **513 pass, 0 fail**: `@nxgt/telemetry` 238,
+`bun run test` is **528 pass, 0 fail**: `@nxgt/telemetry` 238,
 `@nxgt/telemetry-otlp` 72, `@nxgt/telemetry-hono` 44,
 `@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67,
-`@nxgt/telemetry-logging` 47, scripts 5. It runs one process per package, then
+`@nxgt/telemetry-logging` 62, scripts 5. It runs one process per package, then
 the scripts' specs. Treat any failure as yours.
 
 `@nxgt/telemetry-mongo`'s specs run against a **real mongod**, downloaded once by

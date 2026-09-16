@@ -41,9 +41,20 @@ pointing at each other.
 plain object with `transform`, and the transport extends `node:stream`'s
 `Writable`, which is what `winston-transport` itself does. The package has no
 runtime dependency and installs in a workspace with no winston at all. It also
-means the transport does its own level filtering, the same way
-`winston-transport` does — on `Symbol.for('level')` and the logger's level
-table, learned from Node's `pipe` event — because winston pipes every line to
-every transport and expects each to filter.
+means the transport does its own level filtering, the way `winston-transport`
+does — on `Symbol.for('level')` and the logger's level table, learned from
+Node's `pipe` event — because winston pipes every line to every transport and
+expects each to filter. A spec runs both on the same logger and asserts they
+keep the same lines. The one deliberate difference: a line at a level the
+logger's table does not know is kept here and dropped there, for the same reason
+an unknown level maps to `info` rather than `debug`.
+
+A winston line clears the telemetry's `minimum` as well as winston's own level,
+an `Error` on the line becomes the record's `ErrorInfo` — so it reaches OTLP as
+`exception.type` rather than as text on an attribute — and the attributes in
+scope come along under whatever the line already carried, which is the
+inheritance rule the rest of the library follows. A line from winston's
+`exceptionHandlers` is skipped unless `handleExceptions` asks for it, because
+opting in makes winston wait on this transport before the process exits.
 
 `@nxgt/shared-logging` needs nothing extra: its `Logger` is winston's own.

@@ -243,24 +243,65 @@ describe('the loop it refuses', () => {
 	 * — without it the process would spin rather than fail.
 	 */
 	test('two loggers wired at each other settle instead of spinning', async () => {
+		expect(await roundTrips('charged')).toHaveLength(1);
+	});
+
+	/**
+	 * winston's three-argument `log(level, message, meta)` tests the message
+	 * against `/%[scdjifoO%]/` and, when it matches, treats the meta as printf
+	 * arguments — so **none of it reaches the line**. A span named
+	 * `GET /files/%s` would lose its ids, its attributes and the mark that stops
+	 * this loop, and the process would spin. The one-argument form parses
+	 * nothing.
+	 */
+	test('a message with a printf token keeps its mark, and does not spin', async () => {
+		expect(await roundTrips('charged %s for %d')).toHaveLength(1);
+	});
+
+	test('a message with a printf token keeps its ids and attributes', async () => {
 		const { logger, written } = logging();
 		const telemetry = createTelemetry('checkout', {
 			exporters: [winstonExporter({ logger })],
 			batch: 1,
 		});
-		// Added *after* the exporter was built, so the construction-time check
-		// never saw it. This is the loop.
+		const log = createLogger('CheckoutService');
+
+		await withTelemetry(telemetry, () =>
+			span('charge', {}, async () => {
+				log.info('charged %s', { orderId: 'o-1' });
+			}),
+		);
+		await telemetry.close();
+		await settled();
+
+		expect(written[0]).toMatchObject({
+			source: 'CheckoutService',
+			orderId: 'o-1',
+		});
+		expect(written[0]?.traceId).toMatch(/^[0-9a-f]{32}$/);
+	});
+
+	/**
+	 * The loop, wired the way construction cannot see: the transport is added
+	 * *after* the exporter was built. What stops it is the mark on the line.
+	 */
+	async function roundTrips(message: string): Promise<Written[]> {
+		const { logger, written } = logging();
+		const telemetry = createTelemetry('checkout', {
+			exporters: [winstonExporter({ logger })],
+			batch: 1,
+		});
 		logger.add(telemetryTransport({ telemetry }));
 
 		const log = createLogger('CheckoutService');
 		await withTelemetry(telemetry, async () => {
-			log.info('charged');
+			log.info(message);
 		});
 		await telemetry.close();
 		await settled();
 
-		expect(written.filter((one) => one.message === 'charged')).toHaveLength(1);
-	});
+		return written.filter((one) => one.message === message);
+	}
 });
 
 describe('when the logger goes wrong', () => {
@@ -272,7 +313,8 @@ describe('when the logger goes wrong', () => {
 		const written: string[] = [];
 		const exporter = winstonExporter({
 			logger: {
-				log(_level: string, message: string): void {
+				log(info: Record<string, unknown>): void {
+					const message = String(info.message);
 					if (message === 'second') throw new Error('the transport is gone');
 					written.push(message);
 				},

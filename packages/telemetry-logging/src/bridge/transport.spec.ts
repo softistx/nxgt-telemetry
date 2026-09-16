@@ -8,10 +8,12 @@ import {
 	type Signal,
 	span,
 	type Telemetry,
+	withAttributes,
 	withTelemetry,
 } from '@nxgt/telemetry';
 import winston from 'winston';
-import { telemetryFormat } from './format';
+import TransportStream from 'winston-transport';
+import { type LogInfo, telemetryFormat } from './format';
 import { FROM_TELEMETRY } from './origin';
 import { TelemetryTransport, telemetryTransport } from './transport';
 
@@ -285,5 +287,205 @@ describe('when something goes wrong', () => {
 
 	test('the class and the function build the same thing', () => {
 		expect(telemetryTransport()).toBeInstanceOf(TelemetryTransport);
+	});
+});
+
+describe('what a line is about', () => {
+	/**
+	 * `@nxgt/telemetry-otlp` turns a record's `error` into `exception.type`,
+	 * `exception.message` and `exception.stacktrace` — the fields an exception
+	 * dashboard queries on. Left as text on an attribute, a winston error line
+	 * has none of them.
+	 */
+	test('an Error as the message becomes an ErrorInfo', async () => {
+		logging().error(new Error('card refused'));
+		await telemetry.close();
+
+		expect(logs()[0]?.error).toMatchObject({
+			type: 'Error',
+			message: 'card refused',
+		});
+		expect(logs()[0]?.error?.stackTrace).toContain('Error: card refused');
+	});
+
+	test('an Error passed as meta becomes one too', async () => {
+		logging().error('charge failed', { error: new TypeError('bad card') });
+		await telemetry.close();
+
+		expect(logs()[0]?.error).toMatchObject({
+			type: 'TypeError',
+			message: 'bad card',
+		});
+	});
+
+	/**
+	 * `format.errors()` flattens the error onto the line and keeps only the
+	 * stack, which is all there is left to rebuild from.
+	 */
+	test('a stack left by format.errors() is rebuilt into one', async () => {
+		const logger = winston.createLogger({
+			level: 'silly',
+			format: winston.format.errors({ stack: true }),
+			transports: [telemetryTransport({ telemetry })],
+		});
+
+		logger.error(new RangeError('out of range'));
+		await telemetry.close();
+
+		expect(logs()[0]?.error?.type).toBe('RangeError');
+		expect(logs()[0]?.error?.stackTrace).toContain('RangeError');
+		expect(logs()[0]?.attributes).not.toHaveProperty('stack');
+	});
+
+	test('an ordinary line is about no failure at all', async () => {
+		logging().info('order stored');
+		await telemetry.close();
+
+		expect(logs()[0]?.error).toBeUndefined();
+	});
+
+	/**
+	 * The inheritance rule the rest of the library follows: what `span()` and
+	 * `withAttributes()` were given reaches the logs nested inside.
+	 */
+	test('carries the attributes in scope', async () => {
+		const logger = logging();
+
+		await withTelemetry(telemetry, () =>
+			withAttributes({ tenant: 'acme' }, async () => {
+				logger.info('order stored');
+			}),
+		);
+		await telemetry.close();
+
+		expect(logs()[0]?.attributes.tenant).toBe('acme');
+	});
+
+	/** A field the call site set means what it says. */
+	test('a scope attribute never replaces one the line carried', async () => {
+		const logger = logging();
+
+		await withTelemetry(telemetry, () =>
+			withAttributes({ orderId: 'from the scope' }, async () => {
+				logger.info('order stored', { orderId: 'from the call' });
+			}),
+		);
+		await telemetry.close();
+
+		expect(logs()[0]?.attributes.orderId).toBe('from the call');
+	});
+});
+
+describe('the floors it clears', () => {
+	/**
+	 * winston has already applied its own level. This is the telemetry's, and a
+	 * service that set `minimum: 'error'` means it for every route into the
+	 * pipeline — which is also what makes the `info` fallback in `levels.ts` the
+	 * safe direction to err in.
+	 */
+	test('a line below the telemetry minimum is not posted', async () => {
+		const quiet = createTelemetry('checkout', {
+			exporters: [collecting()],
+			batch: 1,
+			minimum: 'error',
+		});
+		const logger = winston.createLogger({
+			level: 'silly',
+			transports: [telemetryTransport({ telemetry: quiet })],
+		});
+
+		logger.debug('chatter');
+		logger.error('refused');
+		await quiet.close();
+
+		expect(logs().map((one) => one.name)).toEqual(['refused']);
+	});
+
+	/**
+	 * winston pipes every line to every transport and expects each one to
+	 * filter, which is why this reimplements what `winston-transport` does. The
+	 * spec is against the real thing: both transports see the same lines and
+	 * must keep the same ones.
+	 */
+	test('filters exactly as a real winston-transport does', async () => {
+		const kept: string[] = [];
+
+		class Reference extends TransportStream {
+			override log(info: LogInfo, next: () => void): void {
+				kept.push(String(info.level));
+				next();
+			}
+		}
+
+		const logger = winston.createLogger({
+			level: 'silly',
+			transports: [
+				telemetryTransport({ telemetry, level: 'warn' }),
+				new Reference({ level: 'warn' }),
+			],
+		});
+
+		for (const level of ['silly', 'debug', 'info', 'warn', 'error']) {
+			logger.log(level, level);
+		}
+		await telemetry.close();
+
+		expect(logs().map((one) => one.name)).toEqual(kept);
+		expect(kept).toEqual(['warn', 'error']);
+	});
+
+	test('a silent transport receives nothing', async () => {
+		logging(telemetryTransport({ telemetry, silent: true })).error('refused');
+		await telemetry.close();
+
+		expect(logs()).toHaveLength(0);
+	});
+
+	/**
+	 * Turning this on puts the transport in winston's list of exception
+	 * handlers, and winston then waits up to three seconds for each of them to
+	 * finish before the process exits. Off is winston's own default.
+	 */
+	test('a line from winston\u2019s exceptionHandlers is skipped by default', async () => {
+		logging().log({ level: 'error', message: 'uncaught', exception: true });
+		await telemetry.close();
+
+		expect(logs()).toHaveLength(0);
+	});
+
+	test('and collected when handleExceptions is asked for', async () => {
+		logging(telemetryTransport({ telemetry, handleExceptions: true })).log({
+			level: 'error',
+			message: 'uncaught',
+			exception: true,
+		});
+		await telemetry.close();
+
+		expect(logs()).toHaveLength(1);
+	});
+
+	/**
+	 * `winston-transport` compares against `undefined` here, which is `false`,
+	 * and drops the line. This keeps it: a level nobody declared is somebody's
+	 * mistake, and losing the line is how the mistake stays invisible.
+	 */
+	test('a line at a level the table does not know is kept', async () => {
+		const transport = telemetryTransport({ telemetry, level: 'warn' });
+		const logger = logging(transport);
+
+		logger.log({ level: 'crit', message: 'something odd' });
+		await telemetry.close();
+
+		expect(logs().map((one) => one.name)).toEqual(['something odd']);
+	});
+
+	/** Left pointing at the old logger, `parent` filters by nobody's level. */
+	test('forgets its logger when it is removed', () => {
+		const transport = telemetryTransport({ telemetry });
+		const logger = logging(transport);
+
+		expect(transport.parent).toBeDefined();
+		logger.remove(transport);
+		expect(transport.parent).toBeUndefined();
 	});
 });

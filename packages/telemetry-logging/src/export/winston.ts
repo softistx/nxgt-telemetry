@@ -18,7 +18,7 @@ import { TelemetryTransport } from '../bridge/transport';
  * this package importing any of them.
  */
 export interface WinstonLike {
-	log(level: string, message: string, meta?: Record<string, unknown>): unknown;
+	log(info: Record<string, unknown>): unknown;
 	readonly transports?: readonly unknown[];
 }
 
@@ -103,6 +103,19 @@ function refuseTheLoop(logger: WinstonLike): void {
 	);
 }
 
+/**
+ * One line, through winston's **single-argument** `log`.
+ *
+ * Not `log(level, message, meta)`, and the difference is not cosmetic. On the
+ * three-argument path winston tests the message against `/%[scdjifoO%]/` and,
+ * when it matches, treats the meta as printf arguments — they go to
+ * `Symbol.for('splat')` and **none of them reach the line**. A span named
+ * `GET /files/%s`, or a log message that merely contains a `%d`, would lose its
+ * `traceId`, its attributes, and the mark that stops this bridge looping.
+ *
+ * The one-argument form is winston's own hot path: it takes the object as the
+ * line, sets the level and writes it. Nothing is parsed, so nothing is lost.
+ */
 function write(
 	logger: WinstonLike,
 	level: string,
@@ -110,7 +123,7 @@ function write(
 	meta: Record<string, unknown>,
 ): void {
 	try {
-		logger.log(level, message, meta);
+		logger.log({ ...meta, level, message });
 	} catch {
 		// An exporter that throws reaches `onExportError` and costs the rest of
 		// the batch. A logger with a broken transport is not worth that.

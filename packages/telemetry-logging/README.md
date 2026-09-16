@@ -58,11 +58,23 @@ attached.
 | `telemetry` | in scope, else installed | |
 | `fallback` | `info` | what a level this library does not know becomes |
 | `level` | the logger's | winston's own option, honoured here |
+| `silent` | `false` | winston's own option |
+| `handleExceptions` | `false` | whether a line from winston's `exceptionHandlers` is collected |
+
+A line also has to clear the **telemetry's** `minimum`, not only winston's
+level: two floors, because winston's decides what the logger writes at all and
+the telemetry's decides what the pipeline keeps. An `Error` — as the message, as
+`error` in the meta, or as the `stack` that `format.errors()` leaves behind —
+becomes the record's `ErrorInfo`, so it reaches OTLP as `exception.type` and
+`exception.stacktrace` rather than as text on an attribute. The attributes in
+scope come along too, under whatever the line already carried.
 
 A level winston knows and this does not — `crit` from a `syslog` level set, a
 custom one — becomes `info`, and the direction matters: mapped to `debug` it
 would be dropped by a pipeline with the default `minimum`, and a line that
-disappears is worse than one recorded a shade too loudly.
+disappears is worse than one recorded a shade too loudly. For the same reason a
+line at a level the logger's own table does not know is **kept**, where
+`winston-transport` drops it.
 
 ## Telemetry signals into a winston already in place
 
@@ -133,8 +145,21 @@ all apply to it unchanged.
   at all.
 - **A transport's `level` is enforced by the transport, not by the logger.**
   winston pipes every line to every transport and each one filters. This does
-  the filtering the same way `winston-transport` does, on `Symbol.for('level')`
-  and the logger's own level table, which it learns from Node's `pipe` event.
+  the filtering the way `winston-transport` does, on `Symbol.for('level')` and
+  the logger's own level table, which it learns from Node's `pipe` event — with
+  one deliberate difference, the unknown level above. A spec runs both
+  transports on the same logger and asserts they keep the same lines.
+- **Uncaught exceptions are not collected unless you ask.** A line from
+  winston's `exceptionHandlers` carries `exception: true`, and a transport
+  without `handleExceptions` ignores it — winston's rule, followed here.
+  Turning it on also puts this transport in winston's list of exception
+  handlers, and winston then waits up to three seconds for each of them to emit
+  `finish` before the process exits. A `process.on('uncaughtException')` that
+  calls `log.error` and awaits `telemetry.close()` costs no exit delay.
+- **A per-transport `format` is not supported.** winston lets a transport carry
+  its own; this one does not, because the record is built from the line's
+  fields and a format that rendered them to a string would leave nothing to
+  build from. Put the format on the logger, after `telemetryFormat()`.
 - **A line's own fields become attributes, including big ones.** Whatever is
   passed to `logger.info('…', meta)` is coerced through this library's scalar
   rule; an object becomes its rendering. If a line carries something large or
@@ -143,6 +168,11 @@ all apply to it unchanged.
 - **Nothing here is sampled.** Logs never are, in this library; a winston line
   that lands in the pipeline is exported whether or not its trace was sampled.
   It still carries the `traceId`.
+- **The exporter writes through winston's single-argument `log`.** The
+  three-argument `log(level, message, meta)` tests the message against
+  `/%[scdjifoO%]/` and, when it matches, treats the meta as printf arguments —
+  which means a span named `GET /files/%s` would arrive with no `traceId`, no
+  attributes, and none of the mark that stops this bridge looping.
 - **A transport that throws would take the line down for every other transport
   on the logger.** This one cannot throw: the whole write is guarded, and a
   broken pipeline costs the telemetry, not the log.

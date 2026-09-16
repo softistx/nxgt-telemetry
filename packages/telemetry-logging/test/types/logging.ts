@@ -44,7 +44,8 @@ const transport: TelemetryTransport = telemetryTransport({ telemetry });
 void winston.createLogger({ transports: [transport] });
 
 void telemetryTransport({ source: 'CheckoutService', fallback: 'error' });
-void telemetryTransport({ level: 'warn' });
+void telemetryTransport({ level: 'warn', silent: true });
+void telemetryTransport({ handleExceptions: true });
 
 // @ts-expect-error — `fallback` is one of the four severities, not a winston level
 void telemetryTransport({ fallback: 'silly' });
@@ -54,6 +55,9 @@ void telemetryTransport({ telemetry: 'checkout' });
 
 // @ts-expect-error — a misspelled option would otherwise be silently ignored
 void telemetryTransport({ sources: 'CheckoutService' });
+
+// @ts-expect-error — it is on or off, not a list of what to handle
+void telemetryTransport({ handleExceptions: ['uncaughtException'] });
 
 // --- the exporter --------------------------------------------------------
 
@@ -65,7 +69,7 @@ void exporter;
 void winstonExporter({ logger, spans: true, spanSeverity: 'debug' });
 // Structural, so anything that can `log(level, message, meta)` fits — including
 // `@nxgt/shared-logging`'s `Logger`, which is winston's own.
-void winstonExporter({ logger: { log: () => undefined } });
+void winstonExporter({ logger: { log: (info) => info.level } });
 
 // @ts-expect-error — the logger is not optional: there is nowhere else to write
 void winstonExporter({ spans: true });
@@ -78,6 +82,13 @@ void winstonExporter({ logger, spans: 10 });
 
 // @ts-expect-error — an object with no `log` is not a logger
 void winstonExporter({ logger: { write: () => undefined } });
+
+// The single-argument form, which is the only one that does not lose the meta
+// to winston's printf parsing.
+void winstonExporter({
+	// @ts-expect-error — `log(level, message, meta)` is not the shape this uses
+	logger: { log: (level: string, message: string) => [level, message] },
+});
 
 // --- the levels ----------------------------------------------------------
 
