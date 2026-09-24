@@ -21,11 +21,20 @@
  * Hand-written `.d.ts` files are copied, not emitted: tsc passes them through
  * untouched, so an ambient module augmentation would otherwise never reach
  * `dist/`, and what it declares would vanish for every consumer.
+ *
+ * Every relative import in a declaration then gets its extension —
+ * `'./engine'` becomes `'./engine.js'`, `'./auth'` becomes
+ * `'./auth/index.js'`. The sources import without one, which `bundler`
+ * resolution allows; a consumer on `moduleResolution: nodenext` refuses
+ * every such import with TS2834, and sees none of the package's types.
+ * `.js` is right even where the JavaScript was bundled away: under nodenext,
+ * TypeScript looks for `engine.d.ts` beside the `engine.js` it is told of.
  */
 
 import { readdir, rm } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { $ } from 'bun';
+import ts from 'typescript';
 
 const pkg = await Bun.file('package.json').json();
 const name: string = pkg.name;
@@ -104,6 +113,56 @@ for await (const file of walk('src')) {
 	copied++;
 }
 
+// Extensions on every relative import of every declaration. Read with
+// TypeScript's own scanner, which skips comments: a JSDoc example stays as
+// written. A specifier that names no declaration fails the build, since it
+// would fail every consumer.
+let rewritten = 0;
+for (const file of written) {
+	if (!file.endsWith('.d.ts')) continue;
+	const text = await Bun.file(file).text();
+	const imports = ts
+		.preProcessFile(text, true, true)
+		.importedFiles.filter(
+			({ fileName }) => fileName.startsWith('./') || fileName.startsWith('../'),
+		)
+		// An extension already written — `.js`, or a hand-written `.d.ts`
+		// importing another — is left as it is.
+		.filter(
+			({ fileName }) => !/\.(?:d\.[cm]?ts|[cm]?[jt]s|json)$/.test(fileName),
+		);
+	if (imports.length === 0) continue;
+
+	let next = text;
+	// From the end, so each position is still where the scanner found it.
+	for (const { fileName, pos } of [...imports].sort((a, b) => b.pos - a.pos)) {
+		// `pos` is the opening quote in TypeScript 6, not the name: find the
+		// name where it says, rather than trusting an offset.
+		const at = text.indexOf(fileName, pos);
+		if (at < 0 || at > pos + 1) {
+			console.error(
+				`${name}: cannot place ${fileName} in ${relative('.', file)}`,
+			);
+			process.exit(1);
+		}
+		const base = resolve(dirname(file), fileName);
+		const target = (await Bun.file(`${base}.d.ts`).exists())
+			? `${fileName}.js`
+			: (await Bun.file(join(base, 'index.d.ts')).exists())
+				? `${fileName.replace(/\/$/, '')}/index.js`
+				: null;
+		if (target === null) {
+			console.error(
+				`${name}: ${relative('.', file)} imports ${fileName}, which names no declaration in dist/`,
+			);
+			process.exit(1);
+		}
+		next = next.slice(0, at) + target + next.slice(at + fileName.length);
+	}
+	await Bun.write(file, next);
+	rewritten++;
+}
+
 // What the last build wrote and this one did not: a module since moved or
 // deleted, which would otherwise ship.
 let pruned = 0;
@@ -142,5 +201,6 @@ for (const [command, target] of Object.entries(bins)) {
 console.log(
 	`${name}: ${result.outputs.length} artifact(s)` +
 		(copied ? `, ${copied} hand-written declaration(s) copied` : '') +
+		(rewritten ? `, ${rewritten} declaration(s) given extensions` : '') +
 		(pruned ? `, ${pruned} stale file(s) removed` : ''),
 );

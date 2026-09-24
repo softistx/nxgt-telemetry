@@ -175,6 +175,89 @@ try {
 	}
 	console.log(`\nAll ${subpaths.length} subpaths load.`);
 
+	// ── types, as a consumer resolves them ────────────────────────────────────
+	//
+	// Loading proves the JavaScript. The declarations are another artifact,
+	// resolved another way: a consumer on `moduleResolution: nodenext` refuses
+	// a relative import without an extension (TS2834), and with `skipLibCheck`
+	// — the default of most templates — says nothing and types the whole
+	// package `any`. Measured on this package's own tarball before `build.ts`
+	// added the extensions: seven refusals on the root entry alone, and none
+	// with `skipLibCheck`. So the check runs without it, once per resolution a
+	// consumer uses, and fails only on what this workspace wrote: a dependency's
+	// declarations are not ours to fix.
+	//
+	// The consumer runs on Bun, with the `@types/bun` this workspace pins: these
+	// packages are built for it, and some declarations name `bun` or Node's
+	// `Buffer`, which only a runtime's types provide.
+	console.log('\nTypechecking every subpath as a consumer…\n');
+	const bunTypes =
+		(await Bun.file(join(ROOT, 'package.json')).json()).devDependencies?.[
+			'@types/bun'
+		] ?? 'latest';
+	const addTypes = await $`bun add -d ${`@types/bun@${bunTypes}`}`
+		.cwd(workdir)
+		.quiet()
+		.nothrow();
+	if (addTypes.exitCode !== 0) {
+		console.error(addTypes.stderr.toString());
+		process.exit(1);
+	}
+	await Bun.write(
+		join(workdir, 'types.ts'),
+		`${subpaths.map((s, n) => `import * as m${n} from ${JSON.stringify(s)};`).join('\n')}\n` +
+			`export const all = [${subpaths.map((_, n) => `m${n}`).join(', ')}];\n`,
+	);
+	const ours = packages.map((p) => `node_modules/${p.name}/`);
+	let untyped = 0;
+	for (const resolution of ['nodenext', 'bundler'] as const) {
+		await Bun.write(
+			join(workdir, `tsconfig.${resolution}.json`),
+			JSON.stringify({
+				compilerOptions: {
+					strict: true,
+					noEmit: true,
+					skipLibCheck: false,
+					module: resolution === 'nodenext' ? 'nodenext' : 'preserve',
+					moduleResolution: resolution,
+					target: 'esnext',
+					lib: ['esnext', 'dom'],
+					types: ['bun'],
+				},
+				files: ['types.ts'],
+			}),
+		);
+		const tsc =
+			await $`${join(ROOT, 'node_modules/.bin/tsc')} -p tsconfig.${resolution}.json`
+				.cwd(workdir)
+				.quiet()
+				.nothrow();
+		const errors = tsc.stdout
+			.toString()
+			.split('\n')
+			.filter((line) => /: error TS\d+/.test(line))
+			.filter(
+				(line) =>
+					line.startsWith('types.ts') ||
+					ours.some((prefix) => line.startsWith(prefix)),
+			);
+		if (errors.length === 0) {
+			console.log(`  ok      ${resolution}`);
+			continue;
+		}
+		untyped++;
+		console.log(`  FAIL    ${resolution}: ${errors.length} error(s)`);
+		for (const line of errors.slice(0, 5)) console.log(`          ${line}`);
+	}
+	if (untyped > 0) {
+		console.error(
+			'\nA consumer would not see these types. A relative import without an\n' +
+				'extension is the usual cause; build.ts adds them — see its comment.',
+		);
+		process.exit(1);
+	}
+	console.log('\nEvery subpath typechecks under nodenext and bundler.');
+
 	const bins = packages.flatMap((p) => p.bins);
 	if (bins.length > 0) {
 		console.log(`\nRunning ${bins.length} declared bin(s) with --help…\n`);
