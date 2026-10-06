@@ -1,5 +1,13 @@
 # @nxgt/telemetry-logging
 
+## 0.2.2
+
+### Patch Changes
+
+- [#18](https://github.com/softistx/nxgt-telemetry/pull/18) [`ab4c137`](https://github.com/softistx/nxgt-telemetry/commit/ab4c137106fd8dbc87f2c35f074a9584130ba0b2) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `TelemetryTransport.level` is now declared `readonly level?: string` rather than `readonly level: string | undefined`, so the class is assignable to winston's `TransportStream` for a consumer compiled with `exactOptionalPropertyTypes`. Reading it is unchanged. The package is now compiled with the strict base config (`exactOptionalPropertyTypes`, `useDefineForClassFields` and the rest); class fields are emitted as declarations, with identical behaviour.
+- Updated dependencies [[`ab4c137`](https://github.com/softistx/nxgt-telemetry/commit/ab4c137106fd8dbc87f2c35f074a9584130ba0b2)]:
+  - @nxgt/telemetry@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

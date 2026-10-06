@@ -1,5 +1,13 @@
 # @nxgt/telemetry-otlp
 
+## 0.2.2
+
+### Patch Changes
+
+- [#18](https://github.com/softistx/nxgt-telemetry/pull/18) [`ab4c137`](https://github.com/softistx/nxgt-telemetry/commit/ab4c137106fd8dbc87f2c35f074a9584130ba0b2) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Compiled with the strict base config (`noImplicitOverride`, `useDefineForClassFields` and the rest). The emitted declarations are unchanged; the error classes now declare their fields instead of assigning them in the constructor, with identical behaviour.
+- Updated dependencies [[`ab4c137`](https://github.com/softistx/nxgt-telemetry/commit/ab4c137106fd8dbc87f2c35f074a9584130ba0b2)]:
+  - @nxgt/telemetry@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes
