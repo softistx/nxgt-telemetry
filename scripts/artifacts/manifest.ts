@@ -1,18 +1,23 @@
 import { onRegistry } from './registry';
+import { type SiblingManifest, siblingRangeProblems } from './siblings';
 import { type Tarball, tarballProblems } from './tarball';
 
 /**
  * What a published tarball may not contain, measured on Bun 1.4.0 rather than
  * assumed:
  *
- *   - a `link:` or `file:` in a field a consumer installs. `devDependencies`
- *     are exempt: a consumer never installs a dependency's dev dependencies,
- *     so a `link:` there is untidy, not harmful.
+ *   - a `link:`, `file:` or `workspace:` in a field a consumer installs.
+ *     `devDependencies` are exempt: a consumer never installs a dependency's
+ *     dev dependencies, so a `link:` there is untidy, not harmful. A
+ *     `workspace:` left in a tarball means `bun pm pack` did not resolve it,
+ *     and no registry can.
  *   - a **required** peer that is on no registry. This is the shape that once
  *     broke every consumer's install of nxgt-core with a 404. An *optional*
  *     peer is safe whatever its range; a required one is not.
- *   - a **sibling range that leaves out the sibling in this workspace**, which
- *     is what a stale `bun.lock` publishes.
+ *   - a **sibling range other than the one its `workspace:` spec produces**
+ *     beside the sibling's version in this workspace, which is what a stale
+ *     `bun.lock` publishes; `siblings.ts` holds that check and why it is
+ *     exact.
  *   - an **exact pin on a sibling package**. `workspace:*` publishes as the
  *     exact version, so a package would demand the exact
  *     sibling it was built with while the consumer's own caret range
@@ -41,12 +46,13 @@ import { type Tarball, tarballProblems } from './tarball';
  */
 export async function manifestProblems(
 	tarballs: readonly Tarball[],
-	versions: Record<string, string>,
+	sources: readonly SiblingManifest[],
 ): Promise<string[]> {
 	const manifests = tarballs.map((t) => t.manifest);
 	const problems = [
 		...tarballs.flatMap(tarballProblems),
-		...manifestShapeProblems(manifests, versions),
+		...manifestShapeProblems(manifests),
+		...siblingRangeProblems(manifests, sources),
 		...manifests.flatMap(accessProblems),
 	];
 	const own = new Set(manifests.map((m) => m.name as string));
@@ -86,13 +92,12 @@ export function accessProblems(manifest: Record<string, unknown>): string[] {
 }
 
 /**
- * Every check on the manifests' dependency fields that needs no network: a
- * `link:` or `file:`, a package listing itself, an exact pin on a sibling, and
- * a sibling range that leaves out the sibling beside it. Pure, so it has specs.
+ * Every check on the manifests' dependency fields that needs no network nor
+ * the workspace: a `link:`, `file:` or `workspace:`, a package listing
+ * itself, and an exact pin on a sibling. Pure, so it has specs.
  */
 export function manifestShapeProblems(
 	manifests: readonly Record<string, unknown>[],
-	versions: Record<string, string>,
 ): string[] {
 	const own = new Set(manifests.map((m) => m.name as string));
 	return manifests.flatMap((manifest) =>
@@ -107,7 +112,6 @@ export function manifestShapeProblems(
 						dep,
 						String(range),
 						own,
-						versions,
 					),
 				),
 		),
@@ -120,11 +124,16 @@ function dependencyProblems(
 	dep: string,
 	range: string,
 	own: ReadonlySet<string>,
-	versions: Record<string, string>,
 ): string[] {
 	const problems: string[] = [];
 	if (/^(link|file):/.test(range)) {
 		problems.push(`${name}: ${field}.${dep} = ${range}`);
+	}
+	if (range.startsWith('workspace:')) {
+		problems.push(
+			`${name}: ${field}.${dep} = ${range}, which \`bun pm pack\` should ` +
+				'have resolved',
+		);
 	}
 	if (dep === name) {
 		problems.push(
@@ -137,17 +146,6 @@ function dependencyProblems(
 		problems.push(
 			`${name}: ${field}.${dep} = ${range} pins a sibling exactly; ` +
 				'use `workspace:^` so the consumer gets one copy',
-		);
-	}
-	// What `workspace:^` becomes is read from `bun.lock`, not from the
-	// sibling's manifest: a lockfile left behind by `changeset version`
-	// publishes a range that excludes the sibling being released beside it.
-	// Measured on @nxgt/mongo-meilisearch 0.1.0.
-	const sibling = versions[dep];
-	if (sibling && !Bun.semver.satisfies(sibling, range)) {
-		problems.push(
-			`${name}: ${field}.${dep} = ${range} leaves out ${dep}@${sibling}, ` +
-				'the version beside it; run `bun install --lockfile-only`',
 		);
 	}
 	return problems;
