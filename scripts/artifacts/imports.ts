@@ -34,13 +34,15 @@ function isRuntime(specifier: string): boolean {
  * a declaration file through `declarationSpecifiers`, since Bun's drops the
  * type-only imports (`import type`, `export type … from`, `import('x').T`,
  * and `/// <reference types>`) that are all a `.d.ts` holds, and a
- * consumer's `tsc` still resolves them. A bin's `#!` line is not read.
+ * consumer's `tsc` still resolves them.
  */
 function specifiersOf(rel: string, text: string): string[] {
 	if (rel.endsWith('.d.ts')) return declarationSpecifiers(text);
-	// A bin's `#!` line, which Bun's scanner refuses as a syntax error.
+	// A bin's built file starts with `#!/usr/bin/env bun`, which the scanner
+	// refuses as a syntax error, measured on bun 1.4.2 with a built bin's
+	// `dist/cli.js`. It is no code: read what follows it.
 	return new Bun.Transpiler({ loader: 'js' })
-		.scanImports(text.replace(/^#!.*/, ''))
+		.scanImports(text.replace(/^#![^\n]*/, ''))
 		.map(({ path }) => path);
 }
 
@@ -79,6 +81,25 @@ export function undeclaredImports(
 }
 
 /**
+ * Which file the scanner refused, and why: the scan of each bundle again,
+ * one at a time, so the report names it rather than the run ending in a
+ * stack trace.
+ */
+export function scanFailure(
+	bundles: readonly (readonly [string, string])[],
+	error: unknown,
+): string {
+	for (const [rel, text] of bundles) {
+		try {
+			specifiersOf(rel, text);
+		} catch (each) {
+			return `${rel} could not be scanned: ${(each as Error).message}`;
+		}
+	}
+	return `could not be scanned: ${(error as Error).message}`;
+}
+
+/**
  * Every built import names something the manifest declares, checked on the
  * installed tarballs; false if any package imports what it does not declare.
  *
@@ -104,7 +125,14 @@ export async function importsDeclared(
 		})) {
 			bundles.push([rel, await Bun.file(join(root, rel)).text()]);
 		}
-		const found = undeclaredImports(manifest, bundles);
+		let found: [string, string][];
+		try {
+			found = undeclaredImports(manifest, bundles);
+		} catch (error) {
+			undeclared++;
+			console.log(`  FAIL    ${pkg.name}: ${scanFailure(bundles, error)}`);
+			continue;
+		}
 		if (found.length === 0) {
 			console.log(`  ok      ${pkg.name}`);
 			continue;

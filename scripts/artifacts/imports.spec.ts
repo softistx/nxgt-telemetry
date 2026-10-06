@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { packageOf, undeclaredImports } from './imports';
+import { packageOf, scanFailure, undeclaredImports } from './imports';
 
 describe('packageOf', () => {
 	test('reads a scoped name and a plain one, without the subpath', () => {
@@ -112,5 +112,33 @@ describe('undeclaredImports', () => {
 			['dist/c.d.ts', '@nxgt/s3'],
 			['dist/e.d.ts', '@nxgt/meilisearch'],
 		]);
+	});
+});
+
+describe('scanFailure', () => {
+	const kit = { name: '@nxgt/mongo-kit' };
+	const bad = ['dist/bad.js', 'import {{{ from'] as const;
+
+	test('a file the scanner cannot read throws from the scan', () => {
+		expect(() => undeclaredImports(kit, [bad])).toThrow();
+	});
+
+	test('names the file the scanner refused, and why', () => {
+		const bundles = [['dist/ok.js', 'import "a";'], bad] as const;
+		let error: unknown;
+		try {
+			undeclaredImports(kit, bundles);
+		} catch (each) {
+			error = each;
+		}
+		const report = scanFailure(bundles, error);
+		expect(report.startsWith('dist/bad.js could not be scanned: ')).toBe(true);
+		expect(report).not.toContain('dist/ok.js');
+	});
+
+	test('falls back to the error alone when no file refuses on its own', () => {
+		expect(
+			scanFailure([['dist/ok.js', 'import "a";']], new Error('boom')),
+		).toBe('could not be scanned: boom');
 	});
 });
