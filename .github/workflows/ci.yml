@@ -63,3 +63,39 @@ jobs:
       - name: Changeset present
         if: github.head_ref != 'changeset-release/develop'
         run: bun run changeset:status
+
+  newest-peers:
+    # The job above runs the lockfile's toolchain: the exact versions each
+    # package pins as a devDependency, the oldest end of each peer range. This
+    # one runs the newest end — the latest hono, mongodb and the rest each
+    # range accepts, and TypeScript within `~6.0.3` — so a range stays true
+    # after the release that would break it. It resolves without a lockfile,
+    # so an upstream release can turn it red with no change here: read it, do
+    # not make it a required check.
+    name: Newest peers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup
+        uses: ./.github/actions/setup
+      # Rewrites the manifests in this checkout only, then installs what they
+      # now name. The lockfile goes: its versions satisfy the rewritten
+      # ranges, so an install that kept it would test the oldest end again.
+      - name: Use the newest peers
+        run: bun scripts/newest-peers.ts && rm bun.lock && bun install
+      - name: Build packages
+        run: bun run build
+      - name: Type checking
+        run: bun run typecheck
+      # The same mongod binary, from the same cache, as the job above.
+      - name: Cache the mongod binary
+        uses: actions/cache@v4
+        with:
+          path: .cache/mongodb
+          key: mongod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/telemetry-mongo/test/server.ts') }}
+      - name: Run tests
+        run: bun run test
+      - name: Verify the built artifacts load
+        run: bun run verify:artifacts
