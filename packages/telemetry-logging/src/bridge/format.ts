@@ -10,7 +10,6 @@ import { currentAttributes, currentSpan } from '@nxgt/telemetry';
  */
 export interface LogInfo {
 	level: string;
-	// biome-ignore lint/suspicious/noExplicitAny: logform's own `message` is `any`, and a narrower one here would not be assignable to it
 	message: any;
 	/**
 	 * Symbols too, because winston keeps two of its own there — `Symbol.for('level')`
@@ -18,7 +17,6 @@ export interface LogInfo {
 	 * the rendered line. A string-only index signature is not assignable to
 	 * logform's `TransformableInfo`, which is what `combine` takes.
 	 */
-	// biome-ignore lint/suspicious/noExplicitAny: as above, to stay assignable to logform's shape
 	[field: string | symbol]: any;
 }
 
