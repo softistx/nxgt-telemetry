@@ -14,9 +14,7 @@ runs:
       # No token: @nxgt/* are public on npmjs, and installing them needs no
       # authentication. Only the release job authenticates, through bunfig.toml
       # reading NPM_TOKEN.
+      #
+      # No Biome step: ci.yml runs the Biome bun.lock resolved, `bunx biome ci`.
       run: bun i --frozen-lockfile
       shell: bash
-    - name: Setup Biome
-      uses: biomejs/setup-biome@v2
-      with:
-        version: latest
