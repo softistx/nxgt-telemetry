@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -20,11 +20,13 @@
 			"suspicious": {
 				"noExplicitAny": "off",
 				"noArrayIndexKey": "off",
-				"useAdjacentOverloadSignatures": "off"
+				"useAdjacentOverloadSignatures": "off",
+				"noConfusingVoidType": "off"
 			},
 			"complexity": {
 				"noArguments": "off",
-				"useLiteralKeys": "off"
+				"useLiteralKeys": "off",
+				"noBannedTypes": "error"
 			}
 		}
 	},
