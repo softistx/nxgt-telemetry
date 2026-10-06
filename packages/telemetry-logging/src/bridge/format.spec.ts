@@ -44,8 +44,8 @@ describe('telemetryFormat', () => {
 		);
 		await settled();
 
-		expect(written[0]?.traceId).toMatch(/^[0-9a-f]{32}$/);
-		expect(written[0]?.spanId).toMatch(/^[0-9a-f]{16}$/);
+		expect(written[0]?.['traceId']).toMatch(/^[0-9a-f]{32}$/);
+		expect(written[0]?.['spanId']).toMatch(/^[0-9a-f]{16}$/);
 	});
 
 	/**
@@ -87,7 +87,7 @@ describe('telemetryFormat', () => {
 		);
 		await settled();
 
-		expect(written[0]?.tenant).toBe('acme');
+		expect(written[0]?.['tenant']).toBe('acme');
 	});
 
 	test('the attributes can be turned off', async () => {
@@ -117,7 +117,7 @@ describe('telemetryFormat', () => {
 		);
 		await settled();
 
-		expect(written[0]?.orderId).toBe('from the call');
+		expect(written[0]?.['orderId']).toBe('from the call');
 	});
 
 	test('a line keeps everything it already had', async () => {

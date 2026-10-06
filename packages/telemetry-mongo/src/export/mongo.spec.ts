@@ -70,9 +70,9 @@ describe('writing', () => {
 
 		const found = await stored();
 		expect(found).toHaveLength(2);
-		expect(found.map((one) => one.name).sort()).toEqual(['a', 'b']);
-		expect(found[0]?.service).toBe('checkout');
-		expect(found[0]?.at).toBeInstanceOf(Date);
+		expect(found.map((one) => one['name']).sort()).toEqual(['a', 'b']);
+		expect(found[0]?.['service']).toBe('checkout');
+		expect(found[0]?.['at']).toBeInstanceOf(Date);
 	});
 
 	test('an empty batch writes nothing, and asks the database nothing', async () => {
@@ -107,7 +107,10 @@ describe('writing', () => {
 			.export(RESOURCE, [log('a'), refused, log('b')])
 			?.catch(() => undefined);
 
-		expect((await stored()).map((one) => one.name).sort()).toEqual(['a', 'b']);
+		expect((await stored()).map((one) => one['name']).sort()).toEqual([
+			'a',
+			'b',
+		]);
 	});
 
 	/**
@@ -146,7 +149,7 @@ describe('writing', () => {
 			.find({ traceId })
 			.toArray();
 
-		expect(found.map((one) => one.name).sort()).toEqual([
+		expect(found.map((one) => one['name']).sort()).toEqual([
 			'charge',
 			'in the trace',
 		]);
@@ -159,7 +162,7 @@ describe('writing', () => {
 			[log('a')],
 		);
 
-		expect((await stored())[0]?.resource).toEqual({
+		expect((await stored())[0]?.['resource']).toEqual({
 			'deployment.region': 'eu-west-1',
 		});
 	});
@@ -186,7 +189,7 @@ describe('writing', () => {
 			},
 		]);
 
-		expect((await stored()).map((one) => one.type).sort()).toEqual([
+		expect((await stored()).map((one) => one['type']).sort()).toEqual([
 			'log',
 			'span',
 		]);
@@ -364,7 +367,7 @@ describe('when Mongo is not there', () => {
 		await exporter.export(RESOURCE, [log('b')]);
 		await exporter.close?.();
 
-		expect((await stored()).map((one) => one.name)).toEqual(['b']);
+		expect((await stored()).map((one) => one['name'])).toEqual(['b']);
 	});
 });
 

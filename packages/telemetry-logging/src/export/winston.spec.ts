@@ -100,7 +100,7 @@ describe('a log signal', () => {
 			source: 'CheckoutService',
 			orderId: 'o-1',
 		});
-		expect(written[0]?.traceId).toMatch(/^[0-9a-f]{32}$/);
+		expect(written[0]?.['traceId']).toMatch(/^[0-9a-f]{32}$/);
 	});
 });
 
@@ -143,8 +143,8 @@ describe('a span signal', () => {
 			kind: 'client',
 			status: 'ok',
 		});
-		expect(typeof written[0]?.durationMs).toBe('number');
-		expect(written[0]?.traceId).toMatch(/^[0-9a-f]{32}$/);
+		expect(typeof written[0]?.['durationMs']).toBe('number');
+		expect(written[0]?.['traceId']).toMatch(/^[0-9a-f]{32}$/);
 	});
 
 	test('the level spans are written at can be chosen', async () => {
@@ -208,7 +208,7 @@ describe('a span signal', () => {
 
 		const child = written.find((one) => one.message === 'charge');
 		const parent = written.find((one) => one.message === 'request');
-		expect(child?.parentSpanId).toBe(parent?.spanId);
+		expect(child?.['parentSpanId']).toBe(parent?.['spanId']);
 	});
 });
 
@@ -278,7 +278,7 @@ describe('the loop it refuses', () => {
 			source: 'CheckoutService',
 			orderId: 'o-1',
 		});
-		expect(written[0]?.traceId).toMatch(/^[0-9a-f]{32}$/);
+		expect(written[0]?.['traceId']).toMatch(/^[0-9a-f]{32}$/);
 	});
 
 	/**
@@ -314,7 +314,7 @@ describe('when the logger goes wrong', () => {
 		const exporter = winstonExporter({
 			logger: {
 				log(info: Record<string, unknown>): void {
-					const message = String(info.message);
+					const message = String(info['message']);
 					if (message === 'second') throw new Error('the transport is gone');
 					written.push(message);
 				},

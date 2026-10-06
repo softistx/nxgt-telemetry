@@ -52,7 +52,7 @@ describe('coerceAttribute', () => {
 
 	test('a circular object still says something', () => {
 		const circular: Record<string, unknown> = {};
-		circular.self = circular;
+		circular['self'] = circular;
 		expect(coerceAttribute(circular)).toBe('[object Object]');
 	});
 

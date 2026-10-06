@@ -23,7 +23,8 @@
 				"useAdjacentOverloadSignatures": "off"
 			},
 			"complexity": {
-				"noArguments": "off"
+				"noArguments": "off",
+				"useLiteralKeys": "off"
 			}
 		}
 	},
