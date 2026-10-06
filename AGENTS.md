@@ -246,10 +246,11 @@ key in `exports`.
     package (`<package>: no dist/`), since `dist/` is gitignored.
   - `install.ts` packs every package and installs the tarballs as a consumer
     does, with `overrides` so each sibling resolves to its tarball.
+  - `siblings.ts` checks each packed sibling range against the `workspace:` spec
+    in the source `package.json` (exact, not `satisfies`).
   - `tarball.ts` and `manifest.ts` reject what would break an install or a
-    publish: a `link:` or `file:` in a field a consumer resolves, a **required**
-    peer on no registry, an exact pin on a sibling, a sibling range that leaves
-    out the sibling version beside it (`Bun.semver.satisfies`), a package that
+    publish: a `link:`, `file:` or `workspace:` in a field a consumer resolves, a **required**
+    peer on no registry, an exact pin on a sibling, a package that
     lists itself, a package that is not MIT or ships no `LICENSE`, a `files`
     entry the tarball does not hold, **test code shipped** (a `__snapshots__/`
     folder, or a `.spec.*`, `.test.*` or `.fixtures.*` file; a `test/` folder is
@@ -281,13 +282,8 @@ key in `exports`.
   `bun install --frozen-lockfile` does not notice. That is how the five
   integrations' 0.2.0 shipped asking for `@nxgt/telemetry@^0.1.0`, which in 0.x
   excludes 0.2.0. `changeset:version` now runs `bun install` after versioning,
-  so the Version PR carries the refreshed lockfile, and `manifest.ts` requires
-  each packed sibling range to include the sibling version beside it — the
-  `overrides` resolve siblings to their tarballs, which is why the install alone
-  could not see this. **Known gap:** telemetry's earlier check was stricter (the
-  range had to be exactly what the `workspace:` spec asks for, so `^0.2.0` beside
-  0.2.1 failed, and an unresolved `workspace:` failed); `manifest.ts` does not do
-  that now, and it is to be restored in nxgt-data's copy first, then copied here.
+  so the Version PR carries the refreshed lockfile, and `verify:artifacts` requires
+  an exact sibling range, as in nxgt-data: each packed sibling range must be exactly what its `workspace:` spec produces beside the sibling's version in the workspace (`workspace:^` → `^<version>`, `workspace:~` → `~<version>`, `workspace:*` → `<version>`), and a `workspace:` left in a packed field is refused. `siblings.ts` reads each source `package.json` for the spec. It is exact rather than `Bun.semver.satisfies`: a lock stale within one minor packs `^0.19.0` beside 0.19.1, which satisfies it and lets a consumer keep 0.19.0, and `satisfies` answers `true` for `garbage!!`, `latest` and `''`. A sibling written as a plain range still has to let in the version beside it. The `overrides` resolve siblings to their tarballs, which is why the install alone could not see a stale one. `siblings.ts` and `siblings.spec.ts` are byte copies of nxgt-data's (softistx/nxgt-data#193, #194).
 - **Build before typecheck and tests.** Every package's `exports` points at
   `./dist/*`, so on a clean checkout an integration resolves the core to nothing
   and typecheck reports a wall of phantom TS2307. CI builds first.
