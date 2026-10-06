@@ -68,7 +68,7 @@ jobs:
     # The job above runs the lockfile's toolchain: the exact versions each
     # package pins as a devDependency, the oldest end of each peer range. This
     # one runs the newest end — the latest hono, mongodb and the rest each
-    # range accepts, and TypeScript within `~6.0.3` — so a range stays true
+    # range accepts, and TypeScript within `^6.0.3` — so a range stays true
     # after the release that would break it. It resolves without a lockfile,
     # so an upstream release can turn it red with no change here: read it, do
     # not make it a required check.
