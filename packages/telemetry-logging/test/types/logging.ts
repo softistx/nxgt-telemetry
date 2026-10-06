@@ -69,7 +69,7 @@ void exporter;
 void winstonExporter({ logger, spans: true, spanSeverity: 'debug' });
 // Structural, so anything that can `log(level, message, meta)` fits — including
 // `@nxgt/shared-logging`'s `Logger`, which is winston's own.
-void winstonExporter({ logger: { log: (info) => info.level } });
+void winstonExporter({ logger: { log: (info) => info['level'] } });
 
 // @ts-expect-error — the logger is not optional: there is nowhere else to write
 void winstonExporter({ spans: true });

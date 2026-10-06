@@ -45,7 +45,7 @@ export abstract class OtlpError extends Error {
 export class OtlpUnreachableError extends OtlpError {
 	override readonly name = 'OtlpUnreachableError';
 	/** What `fetch` threw on the last attempt. */
-	readonly cause: unknown;
+	override readonly cause: unknown;
 
 	constructor(
 		url: string,

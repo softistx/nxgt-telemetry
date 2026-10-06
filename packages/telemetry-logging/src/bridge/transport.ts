@@ -93,7 +93,7 @@ export interface TransportOptions {
  */
 export class TelemetryTransport extends Writable {
 	readonly source: string;
-	readonly level: string | undefined;
+	readonly level?: string;
 	/** Set by winston when this is piped to a logger, and used to honour `level`. */
 	levels: Readonly<Record<string, number>> | undefined;
 	/** The logger this is attached to, which is where a default level comes from. */
@@ -106,7 +106,7 @@ export class TelemetryTransport extends Writable {
 	constructor(options: TransportOptions = {}) {
 		super({ objectMode: true });
 		this.source = options.source ?? 'winston';
-		this.level = options.level;
+		if (options.level !== undefined) this.level = options.level;
 		this.silent = options.silent ?? false;
 		this.handleExceptions = options.handleExceptions ?? false;
 		this.telemetry = options.telemetry;
@@ -151,7 +151,7 @@ export class TelemetryTransport extends Writable {
 			next();
 			return;
 		}
-		if (info.exception === true && !this.handleExceptions) {
+		if (info['exception'] === true && !this.handleExceptions) {
 			next();
 			return;
 		}
@@ -272,20 +272,22 @@ function message(info: LogInfo): string {
 function failureOf(info: LogInfo, stackTraces: boolean): ErrorInfo | undefined {
 	if (info.message instanceof Error)
 		return errorInfo(info.message, stackTraces);
-	if (info.error instanceof Error) return errorInfo(info.error, stackTraces);
-	if (typeof info.stack !== 'string' || info.stack === '') return undefined;
+	if (info['error'] instanceof Error)
+		return errorInfo(info['error'], stackTraces);
+	if (typeof info['stack'] !== 'string' || info['stack'] === '')
+		return undefined;
 
 	// `format.errors()` flattens the error onto the line and keeps only the
 	// stack, so this is what is left to rebuild from.
 	const rebuilt: ErrorInfo = {
-		type: typeOf(info.stack),
+		type: typeOf(info['stack']),
 		message: message(info),
 	};
 	// Named rather than spread: a spread into an object literal turns off the
 	// excess-property check, which is what would let a misspelled field through
 	// — and `stackTrace` is easy to write as `stack`, which is what winston
 	// calls it.
-	return stackTraces ? { ...rebuilt, stackTrace: info.stack } : rebuilt;
+	return stackTraces ? { ...rebuilt, stackTrace: info['stack'] } : rebuilt;
 }
 
 /** `TypeError: bad` is a `TypeError`; anything unrecognisable is an `Error`. */

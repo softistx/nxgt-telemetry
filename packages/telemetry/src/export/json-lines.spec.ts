@@ -22,6 +22,9 @@ const log: LogRecord = {
 	span: SPAN,
 };
 
+// A log written outside any span: the key is absent, not `undefined`.
+const { span: _span, ...unspanned } = log;
+
 const span: SpanRecord = {
 	type: 'span',
 	name: 'charge',
@@ -70,9 +73,7 @@ describe('a line', () => {
 	});
 
 	test('leaves out what is absent rather than writing null', () => {
-		const parsed = JSON.parse(
-			lines([{ ...log, span: undefined }])[0] as string,
-		);
+		const parsed = JSON.parse(lines([unspanned])[0] as string);
 		expect('span' in parsed).toBe(false);
 	});
 });
@@ -83,7 +84,7 @@ describe('a signal that will not serialise', () => {
 			string,
 			unknown
 		>;
-		circular.self = circular;
+		circular['self'] = circular;
 
 		const written = lines([circular as unknown as Signal, log]);
 

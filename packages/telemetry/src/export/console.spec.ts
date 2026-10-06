@@ -33,6 +33,9 @@ const log: LogRecord = {
 	span: SPAN,
 };
 
+// A log written outside any span: the key is absent, not `undefined`.
+const { span: _span, ...unspanned } = log;
+
 const span: SpanRecord = {
 	type: 'span',
 	name: 'charge',
@@ -53,7 +56,7 @@ describe('a log line', () => {
 	});
 
 	test('written outside a span carries no trace', () => {
-		expect(lines([{ ...log, span: undefined }])[0]).not.toContain('[');
+		expect(lines([unspanned])[0]).not.toContain('[');
 	});
 
 	test('with no attributes says nothing about them', () => {

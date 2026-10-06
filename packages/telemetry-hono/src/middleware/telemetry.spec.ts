@@ -269,7 +269,7 @@ describe('what the handler can reach', () => {
 		await app.request('/');
 		await tracing.telemetry.close();
 
-		expect(spans()[0]?.attributes.tenant).toBe('acme');
+		expect(spans()[0]?.attributes['tenant']).toBe('acme');
 		expect(spans()[0]?.events.map((one) => one.name)).toEqual(['cache.missed']);
 	});
 });

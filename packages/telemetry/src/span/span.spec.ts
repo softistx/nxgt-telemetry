@@ -424,7 +424,7 @@ describe('an attribute that is hostile to read', () => {
 		);
 
 		expect(ran).toBe(true);
-		expect((await spans())[0]?.attributes.computed).toBe('[unreadable]');
+		expect((await spans())[0]?.attributes['computed']).toBe('[unreadable]');
 	});
 });
 

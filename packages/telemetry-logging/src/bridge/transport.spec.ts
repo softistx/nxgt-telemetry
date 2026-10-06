@@ -232,7 +232,7 @@ describe('what winston makes of it', () => {
 		);
 		await telemetry.close();
 
-		expect(logs()[0]?.attributes.traceId).toBe(
+		expect(logs()[0]?.attributes['traceId']).toBe(
 			logs()[0]?.span?.traceId as string,
 		);
 	});
@@ -358,7 +358,7 @@ describe('what a line is about', () => {
 		);
 		await telemetry.close();
 
-		expect(logs()[0]?.attributes.tenant).toBe('acme');
+		expect(logs()[0]?.attributes['tenant']).toBe('acme');
 	});
 
 	/** A field the call site set means what it says. */
@@ -372,7 +372,7 @@ describe('what a line is about', () => {
 		);
 		await telemetry.close();
 
-		expect(logs()[0]?.attributes.orderId).toBe('from the call');
+		expect(logs()[0]?.attributes['orderId']).toBe('from the call');
 	});
 });
 

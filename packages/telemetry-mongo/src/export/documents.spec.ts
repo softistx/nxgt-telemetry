@@ -46,9 +46,9 @@ describe('documentOf', () => {
 		const document = documentOf(RESOURCE, SPAN);
 
 		expect(document.at).toBeInstanceOf(Date);
-		expect(document.startedAt).toBeInstanceOf(Date);
-		expect(document.endedAt).toBeInstanceOf(Date);
-		expect((document.events as { at: Date }[])[0]?.at).toBeInstanceOf(Date);
+		expect(document['startedAt']).toBeInstanceOf(Date);
+		expect(document['endedAt']).toBeInstanceOf(Date);
+		expect((document['events'] as { at: Date }[])[0]?.at).toBeInstanceOf(Date);
 		expect((document.at as Date).getTime()).toBe(AT);
 	});
 
@@ -84,11 +84,11 @@ describe('documentOf', () => {
 	test('changes nothing else about the signal', () => {
 		const document = documentOf(RESOURCE, LOG);
 
-		expect(document.type).toBe('log');
-		expect(document.severity).toBe('info');
-		expect(document.name).toBe('checkout.charged');
-		expect(document.source).toBe('CheckoutService');
-		expect(document.attributes).toEqual({ orderId: 'o-1' });
+		expect(document['type']).toBe('log');
+		expect(document['severity']).toBe('info');
+		expect(document['name']).toBe('checkout.charged');
+		expect(document['source']).toBe('CheckoutService');
+		expect(document['attributes']).toEqual({ orderId: 'o-1' });
 	});
 
 	/**
@@ -145,8 +145,8 @@ describe('documentOf', () => {
 			LOG,
 		);
 
-		expect(document.name).toBe('checkout.charged');
-		expect(document.type).toBe('log');
+		expect(document['name']).toBe('checkout.charged');
+		expect(document['type']).toBe('log');
 		expect(document.resource).toEqual({
 			name: 'not the log name',
 			type: 'span',

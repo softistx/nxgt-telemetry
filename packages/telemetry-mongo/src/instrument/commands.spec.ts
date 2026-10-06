@@ -303,7 +303,7 @@ describe('what it leaves alone', () => {
 		const telemetry = instance();
 		stop = instrumentMongo(watched, {
 			telemetry,
-			traced: (event) => event.command?.insert !== 'sessions',
+			traced: (event) => event.command?.['insert'] !== 'sessions',
 		});
 
 		await watched

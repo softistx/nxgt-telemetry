@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { randomSpanId, randomTraceId, type SpanContext } from '../trace/ids';
 import {
+	type LogRecord,
 	meetsSeverity,
 	SEVERITIES,
 	SEVERITY_NUMBER,
@@ -50,7 +51,7 @@ describe('reading either kind of signal', () => {
 		remote: false,
 	};
 
-	const log: Signal = {
+	const log: LogRecord = {
 		type: 'log',
 		at: 1_000,
 		severity: 'info',
@@ -83,6 +84,7 @@ describe('reading either kind of signal', () => {
 	});
 
 	test('a log outside any span has none', () => {
-		expect(signalSpan({ ...log, span: undefined })).toBeUndefined();
+		const { span: _span, ...unspanned } = log;
+		expect(signalSpan(unspanned)).toBeUndefined();
 	});
 });
