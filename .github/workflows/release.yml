@@ -20,7 +20,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  packages: write
 
 jobs:
   release:
