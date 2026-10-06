@@ -247,12 +247,13 @@ key in `exports`.
   - `install.ts` packs every package and installs the tarballs as a consumer
     does, with `overrides` so each sibling resolves to its tarball.
   - `tarball.ts` and `manifest.ts` reject what would break an install or a
-    publish: a `link:`, `file:` or unresolved `workspace:` in a field a consumer
-    resolves, a **required** peer on no registry, an exact pin on a sibling, a
-    sibling range other than the one its `workspace:` spec asks for (given the
-    version beside it: `^0.2.0` beside a 0.2.1 core is stale too), a package that
+    publish: a `link:` or `file:` in a field a consumer resolves, a **required**
+    peer on no registry, an exact pin on a sibling, a sibling range that leaves
+    out the sibling version beside it (`Bun.semver.satisfies`), a package that
     lists itself, a package that is not MIT or ships no `LICENSE`, a `files`
-    entry the tarball does not hold, **test code shipped** (`*.spec.ts`, `test/`),
+    entry the tarball does not hold, **test code shipped** (a `__snapshots__/`
+    folder, or a `.spec.*`, `.test.*` or `.fixtures.*` file; a `test/` folder is
+    not matched),
     and a scoped package without `publishConfig.access: "public"`
     (`scripts/publish.ts` runs `bun publish`, which never reads the changeset
     config's `access`).
@@ -281,9 +282,12 @@ key in `exports`.
   integrations' 0.2.0 shipped asking for `@nxgt/telemetry@^0.1.0`, which in 0.x
   excludes 0.2.0. `changeset:version` now runs `bun install` after versioning,
   so the Version PR carries the refreshed lockfile, and `manifest.ts` requires
-  each packed sibling range to be exactly what its `workspace:` spec asks for —
-  the `overrides` resolve siblings to their tarballs, which is why the install
-  alone could not see this.
+  each packed sibling range to include the sibling version beside it — the
+  `overrides` resolve siblings to their tarballs, which is why the install alone
+  could not see this. **Known gap:** telemetry's earlier check was stricter (the
+  range had to be exactly what the `workspace:` spec asks for, so `^0.2.0` beside
+  0.2.1 failed, and an unresolved `workspace:` failed); `manifest.ts` does not do
+  that now, and it is to be restored in nxgt-data's copy first, then copied here.
 - **Build before typecheck and tests.** Every package's `exports` points at
   `./dist/*`, so on a clean checkout an integration resolves the core to nothing
   and typecheck reports a wall of phantom TS2307. CI builds first.
@@ -359,7 +363,7 @@ publishes to npm.
 | Kept twice | Why |
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
-| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both. `scripts/artifacts/` (every module and spec), `scripts/verify-artifacts.ts`, `scripts/publish.ts` and `scripts/tsconfig.json` are nxgt-data's byte for byte, and `scripts/workspace.ts` is not here at all; the only differences are the temp-directory prefix in `verify-artifacts.ts` (`nxgt-telemetry-verify-`) and the root `tsconfig.base.json`, which is telemetry's (it keeps `allowJs` and the decorator options). A check added to nxgt-data's `scripts/artifacts/` belongs here |
+| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both. `scripts/artifacts/` (every module and spec), `scripts/verify-artifacts.ts`, `scripts/publish.ts` and `scripts/tsconfig.json` are nxgt-data's byte for byte (the comment in `scripts/tsconfig.json` saying the scripts "come from nxgt-http as they are" is nxgt-data's wording and refers to nxgt-data; left as is), and `scripts/workspace.ts` is not here at all; the only differences are the temp-directory prefix in `verify-artifacts.ts` (`nxgt-telemetry-verify-`) and the root `tsconfig.base.json`, which is telemetry's (it keeps `allowJs` and the decorator options). A check added to nxgt-data's `scripts/artifacts/` belongs here |
 | the span-shaped fields an integration builds (`http.request.method`, `url.path`, status mapping) in `-hono` and `-httpyz` | one is a server span and the other a client span, and they disagree where it matters: a client call fails at **400**, a server request at **500**. A shared builder would make each depend on the other's host. **A name they both set must mean the same thing** — `server.address` is the host without its port on both sides, and `server.port` carries it — because a server span and the client span that called it end up on the same dashboard |
 | `SERVER_ADDRESS` and `SERVER_PORT` declared again in `-mongo/src/attributes/db.ts` | it is the same name and the same meaning — the host without its port, and the port beside it — but the constant is three lines and the alternative is `-mongo` importing `-httpyz`, which is the rule above. One integration never imports another. **The meaning is what must stay in step, not the declaration** |
 | the `guarded` hook wrapper, and `always`/`nothing`, in `-hono` and `-httpyz` | twelve lines that touch neither host. Each integration stays installable on its own, and the core has no hooks to justify owning it. Change both when the reason applies to both |
@@ -388,10 +392,10 @@ publishes to npm.
 
 ## Known state
 
-`bun run test` is **537 pass, 0 fail**: `@nxgt/telemetry` 238,
+`bun run test` is **575 pass, 0 fail**: `@nxgt/telemetry` 238,
 `@nxgt/telemetry-otlp` 72, `@nxgt/telemetry-hono` 44,
 `@nxgt/telemetry-httpyz` 40, `@nxgt/telemetry-mongo` 67,
-`@nxgt/telemetry-logging` 62, scripts 14. It runs one process per package, then
+`@nxgt/telemetry-logging` 62, scripts 52. It runs one process per package, then
 the scripts' specs. Treat any failure as yours.
 
 `@nxgt/telemetry-mongo`'s specs run against a **real mongod**, downloaded once by
