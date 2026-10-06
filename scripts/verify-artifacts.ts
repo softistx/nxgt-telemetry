@@ -28,6 +28,9 @@
  * install holds every sibling, so an undeclared one would load here and
  * fail for a consumer.
  *
+ * Every package a built `.d.ts` imports must resolve types for a consumer:
+ * its own, or an `@types` package it declares where a consumer installs it.
+ *
  * Each check lives in `scripts/artifacts/`, one module per responsibility;
  * this file only runs them in order and stops at the first that fails.
  */
@@ -43,6 +46,7 @@ import { binsRun, subpathsLoad } from './artifacts/load';
 import { manifestProblems } from './artifacts/manifest';
 import { type Pkg, readPackages } from './artifacts/packages';
 import { staleBuilds } from './artifacts/stale';
+import { typesReachConsumer } from './artifacts/types';
 
 async function builtFresh(packages: readonly Pkg[]): Promise<boolean> {
 	const stale = await staleBuilds([...packages]);
@@ -92,6 +96,7 @@ async function main(): Promise<boolean> {
 			(await subpathsLoad(workdir, packages)) &&
 			(await classesDefinedOnce(workdir, packages)) &&
 			(await importsDeclared(workdir, packages)) &&
+			(await typesReachConsumer(workdir, packages)) &&
 			(await binsRun(workdir, packages)) &&
 			(await declarationsEmit(workdir, packages))
 		);

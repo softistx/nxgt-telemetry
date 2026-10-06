@@ -4,7 +4,7 @@ import { declarationSpecifiers } from './declarations';
 import type { Pkg } from './packages';
 
 /** The fields whose names a built import may reach: what a consumer installs. */
-const RUNTIME_FIELDS = [
+export const RUNTIME_FIELDS = [
 	'dependencies',
 	'peerDependencies',
 	'optionalDependencies',
@@ -23,7 +23,7 @@ export function packageOf(specifier: string): string {
  * and Node's built-ins with or without `node:` (`Bun.build` keeps `"fs"` as
  * written).
  */
-function isRuntime(specifier: string): boolean {
+export function isRuntime(specifier: string): boolean {
 	return (
 		specifier === 'bun' || specifier.startsWith('bun:') || isBuiltin(specifier)
 	);
