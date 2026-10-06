@@ -22,8 +22,10 @@ jobs:
           fetch-depth: 0
       - name: Setup
         uses: ./.github/actions/setup
+      # The Biome bun.lock resolved, as `bun run check` runs it locally: one
+      # version, the one biome.json's $schema names, and never `latest`.
       - name: Lint code
-        run: biome ci
+        run: bunx biome ci
       # Build FIRST. Every package's `exports` points at `./dist/*`, so on a
       # clean checkout a package that imports a sibling resolves it to nothing
       # and typecheck reports phantom TS2307s. A developer's tree always has a
