@@ -95,15 +95,15 @@ export function siblingRangeProblems(
 ): string[] {
 	const source = new Map<string, RawManifest>();
 	for (const m of sources) {
-		if (typeof m.name === 'string') {
-			source.set(m.name, m);
+		if (typeof m['name'] === 'string') {
+			source.set(m['name'], m);
 		}
 	}
 	return packed.flatMap((manifest) => {
-		const name = String(manifest.name);
+		const name = String(manifest['name']);
 		return INSTALLED_FIELDS.flatMap((field) =>
 			Object.entries(depsOf(manifest, field)).flatMap(([dep, range]) => {
-				const sibling = source.get(dep)?.version;
+				const sibling = source.get(dep)?.['version'];
 				const version = typeof sibling === 'string' ? sibling : undefined;
 				if (version === undefined) {
 					return [];
