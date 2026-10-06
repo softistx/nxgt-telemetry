@@ -1,4 +1,10 @@
 {
 	"extends": "../tsconfig.base.json",
+	"compilerOptions": {
+		// The repository scripts read manifests and the environment, whose keys
+		// are open: they come from nxgt-http as they are, under its settings.
+		"noPropertyAccessFromIndexSignature": false,
+		"exactOptionalPropertyTypes": false
+	},
 	"include": ["**/*.ts"]
 }

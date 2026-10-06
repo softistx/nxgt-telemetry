@@ -239,24 +239,51 @@ key in `exports`.
   Bun emits a re-export of an undeclared variable, and the built file throws at
   import while `bun run build` exits 0.
 - **A build that exits 0 is not evidence the artifact loads.**
-  `bun run verify:artifacts` packs every package, installs the tarballs as a
-  consumer does, imports every subpath in `exports`, and rejects a manifest that
-  would break an install: a `link:`, `file:` or unresolved `workspace:` in a field a consumer resolves, a
-  **required** peer on no registry, an exact pin on a sibling, a sibling range
-  other than the one its `workspace:` spec asks for, or a package that is not MIT or
-  ships no `LICENSE`. `changeset:publish` runs it, so a release cannot skip it.
+  `bun run verify:artifacts` runs the stages of `scripts/artifacts/` in order and
+  stops at the first that fails; `scripts/verify-artifacts.ts` only sequences
+  them. Each module has one responsibility, with a spec beside each pure one:
+  - `stale.ts`: refuses to verify a `dist/` older than its `src/`, or an unbuilt
+    package (`<package>: no dist/`), since `dist/` is gitignored.
+  - `install.ts` packs every package and installs the tarballs as a consumer
+    does, with `overrides` so each sibling resolves to its tarball.
+  - `tarball.ts` and `manifest.ts` reject what would break an install or a
+    publish: a `link:`, `file:` or unresolved `workspace:` in a field a consumer
+    resolves, a **required** peer on no registry, an exact pin on a sibling, a
+    sibling range other than the one its `workspace:` spec asks for (given the
+    version beside it: `^0.2.0` beside a 0.2.1 core is stale too), a package that
+    lists itself, a package that is not MIT or ships no `LICENSE`, a `files`
+    entry the tarball does not hold, **test code shipped** (`*.spec.ts`, `test/`),
+    and a scoped package without `publishConfig.access: "public"`
+    (`scripts/publish.ts` runs `bun publish`, which never reads the changeset
+    config's `access`).
+  - `load.ts` imports every subpath in `exports` and runs every declared bin
+    with `--help`.
+  - `classes.ts` fails a class defined in two chunks of one package, which an
+    `instanceof` across subpaths would reject.
+  - `imports.ts`, served by `declarations.ts`, reads every built import (`.js`
+    through Bun's scanner, `.d.ts` through `declarations.ts`) and fails one that
+    names a package the manifest does not declare. The install holds every
+    sibling side by side, so an undeclared sibling loads there and fails for a
+    consumer who installs one package alone.
+  - `emit.ts` emits the declarations of each package's `test/declarations/*.ts`
+    against the install, under a consumer's settings, to catch TS2883 (a type a
+    `.d.ts` must name and the entry does not export). **No package here holds a
+    `test/declarations/` folder yet, so this stage has nothing to compile**; a
+    builder whose type an app exports gets a case there.
+
+  `registry.ts` asks npm whether a peer exists. `changeset:publish` runs all of
+  it, so a release cannot skip it. On the first run here every stage passed with
+  no package change: the checks found no real problem.
 - **`bun pm pack` resolves `workspace:^` from `bun.lock`, not from the
   sibling's `package.json`.** After `changeset version` bumps the manifests, the
   lockfile still names the old versions until `bun install` runs — and
   `bun install --frozen-lockfile` does not notice. That is how the five
   integrations' 0.2.0 shipped asking for `@nxgt/telemetry@^0.1.0`, which in 0.x
   excludes 0.2.0. `changeset:version` now runs `bun install` after versioning,
-  so the Version PR carries the refreshed lockfile, and `verify:artifacts`
-  requires each packed sibling range to be exactly what its `workspace:` spec
-  asks for, given the version beside it (`^0.2.0` beside a 0.2.1 core is stale
-  too, though 0.2.1 satisfies it) — its
-  `overrides` resolve siblings to their tarballs, which is why the install alone
-  could not see this.
+  so the Version PR carries the refreshed lockfile, and `manifest.ts` requires
+  each packed sibling range to be exactly what its `workspace:` spec asks for —
+  the `overrides` resolve siblings to their tarballs, which is why the install
+  alone could not see this.
 - **Build before typecheck and tests.** Every package's `exports` points at
   `./dist/*`, so on a clean checkout an integration resolves the core to nothing
   and typecheck reports a wall of phantom TS2307. CI builds first.
@@ -332,7 +359,7 @@ publishes to npm.
 | Kept twice | Why |
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
-| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both |
+| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both. `scripts/artifacts/` (every module and spec), `scripts/verify-artifacts.ts`, `scripts/publish.ts` and `scripts/tsconfig.json` are nxgt-data's byte for byte, and `scripts/workspace.ts` is not here at all; the only differences are the temp-directory prefix in `verify-artifacts.ts` (`nxgt-telemetry-verify-`) and the root `tsconfig.base.json`, which is telemetry's (it keeps `allowJs` and the decorator options). A check added to nxgt-data's `scripts/artifacts/` belongs here |
 | the span-shaped fields an integration builds (`http.request.method`, `url.path`, status mapping) in `-hono` and `-httpyz` | one is a server span and the other a client span, and they disagree where it matters: a client call fails at **400**, a server request at **500**. A shared builder would make each depend on the other's host. **A name they both set must mean the same thing** — `server.address` is the host without its port on both sides, and `server.port` carries it — because a server span and the client span that called it end up on the same dashboard |
 | `SERVER_ADDRESS` and `SERVER_PORT` declared again in `-mongo/src/attributes/db.ts` | it is the same name and the same meaning — the host without its port, and the port beside it — but the constant is three lines and the alternative is `-mongo` importing `-httpyz`, which is the rule above. One integration never imports another. **The meaning is what must stay in step, not the declaration** |
 | the `guarded` hook wrapper, and `always`/`nothing`, in `-hono` and `-httpyz` | twelve lines that touch neither host. Each integration stays installable on its own, and the core has no hooks to justify owning it. Change both when the reason applies to both |
