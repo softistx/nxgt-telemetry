@@ -288,6 +288,20 @@ key in `exports`.
 - **Build before typecheck and tests.** Every package's `exports` points at
   `./dist/*`, so on a clean checkout an integration resolves the core to nothing
   and typecheck reports a wall of phantom TS2307. CI builds first.
+- **CI's "Newest peers" job tests the other end of every peer range.** The CI
+  job runs the lockfile: the version each peer resolved to at the last install.
+  `scripts/newest-peers.ts`, a byte copy of nxgt-data's (softistx/nxgt-data,
+  after alxia's), rewrites every manifest that installs a peer to the newest
+  end of its range (`hono` `^4.8.0`, `mongodb` `>=7.0.0 <8`, `winston`,
+  `@nxgt/httpyz`, `typescript` `^6.0.3`), and the job then deletes `bun.lock`,
+  installs, builds, typechecks, tests (the mongod cache included) and verifies
+  the artifacts. It is green today against hono 4.13.13 and mongodb 7.7.0. An
+  upstream release can turn it red with no change here, which is its job: read
+  the failing step and, if a peer range no longer holds, narrow it or fix the
+  code as a package change with a changeset. It is not a required check. The
+  script fails when a peer is installed by nobody, or when two packages'
+  ranges disagree. Run it on a throwaway checkout, never commit what it
+  writes.
 - **An inferred return type whose type lives in a nested `node_modules` path
   cannot be named** in the emitted `.d.ts` (TS2883). Annotate it explicitly,
   through a type the consumer can resolve.
@@ -360,7 +374,7 @@ publishes to npm.
 | Kept twice | Why |
 | --- | --- |
 | `LICENSE`, at the root and in each `packages/*/` | npm ships only the `LICENSE` in the package's own directory. `verify:artifacts` fails a tarball without one. Change them all together |
-| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both. `scripts/artifacts/` (every module and spec, as measured on 2026-10-06; nxgt-di's `install.ts` alone differs from nxgt-data's), `scripts/verify-artifacts.ts`, `scripts/publish.ts` and `scripts/tsconfig.json` are nxgt-data's byte for byte (`imports.ts`, `imports.spec.ts`, `declarations.ts` and `declarations.spec.ts` are the converged undeclared-import check, softistx/nxgt-data#192; the comment in `scripts/tsconfig.json` saying the scripts "come from nxgt-http as they are" is nxgt-data's wording and refers to nxgt-data; left as is), and `scripts/workspace.ts` is not here at all; the only differences are the temp-directory prefix in `verify-artifacts.ts` (`nxgt-telemetry-verify-`) and the root `tsconfig.base.json`, which is telemetry's (it keeps `allowJs` and the decorator options). `types.ts`, `resolve-types.ts` and their specs, the check that each `.d.ts` import's types reach a consumer, are byte copies too (softistx/nxgt-data#195), held in all six (nxgt-data, nxgt-janus, nxgt-core, nxgt-http, nxgt-telemetry, nxgt-di), with `imports.ts`, which exports `RUNTIME_FIELDS` and `isRuntime` for it. A check added to nxgt-data's `scripts/artifacts/` belongs here |
+| `build.ts`, `scripts/`, `.github/`, `biome.json`, `bunfig.toml`, `tsconfig.base.json` | copied from nxgt-data, not shared: each repository releases on its own. Change both when the reason applies to both. `scripts/newest-peers.ts` and its spec, with the "Newest peers" job in `ci.yml`, are byte copies of nxgt-data's (the job's `timeout-minutes` and cache steps are this repository's own). `scripts/artifacts/` (every module and spec, as measured on 2026-10-06; nxgt-di's `install.ts` alone differs from nxgt-data's), `scripts/verify-artifacts.ts`, `scripts/publish.ts` and `scripts/tsconfig.json` are nxgt-data's byte for byte (`imports.ts`, `imports.spec.ts`, `declarations.ts` and `declarations.spec.ts` are the converged undeclared-import check, softistx/nxgt-data#192; the comment in `scripts/tsconfig.json` saying the scripts "come from nxgt-http as they are" is nxgt-data's wording and refers to nxgt-data; left as is), and `scripts/workspace.ts` is not here at all; the only differences are the temp-directory prefix in `verify-artifacts.ts` (`nxgt-telemetry-verify-`) and the root `tsconfig.base.json`, which is telemetry's (it keeps `allowJs` and the decorator options). `types.ts`, `resolve-types.ts` and their specs, the check that each `.d.ts` import's types reach a consumer, are byte copies too (softistx/nxgt-data#195), held in all six (nxgt-data, nxgt-janus, nxgt-core, nxgt-http, nxgt-telemetry, nxgt-di), with `imports.ts`, which exports `RUNTIME_FIELDS` and `isRuntime` for it. A check added to nxgt-data's `scripts/artifacts/` belongs here |
 | the span-shaped fields an integration builds (`http.request.method`, `url.path`, status mapping) in `-hono` and `-httpyz` | one is a server span and the other a client span, and they disagree where it matters: a client call fails at **400**, a server request at **500**. A shared builder would make each depend on the other's host. **A name they both set must mean the same thing** — `server.address` is the host without its port on both sides, and `server.port` carries it — because a server span and the client span that called it end up on the same dashboard |
 | `SERVER_ADDRESS` and `SERVER_PORT` declared again in `-mongo/src/attributes/db.ts` | it is the same name and the same meaning — the host without its port, and the port beside it — but the constant is three lines and the alternative is `-mongo` importing `-httpyz`, which is the rule above. One integration never imports another. **The meaning is what must stay in step, not the declaration** |
 | the `guarded` hook wrapper, and `always`/`nothing`, in `-hono` and `-httpyz` | twelve lines that touch neither host. Each integration stays installable on its own, and the core has no hooks to justify owning it. Change both when the reason applies to both |
