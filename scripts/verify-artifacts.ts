@@ -19,187 +19,85 @@
  * Everything else resolves from the registry the way a consumer's install
  * does. Optional peers are installed too, the way a
  * consumer who uses the subpath that needs one would.
+ *
+ * A package's `test/declarations/*.ts` is compiled with the declaration
+ * build on, against the install: a type a consumer's `.d.ts` must name and
+ * the entry does not export fails there with TS2883, and nowhere else.
+ *
+ * Every built import must name something the manifest declares: the
+ * install holds every sibling, so an undeclared one would load here and
+ * fail for a consumer.
+ *
+ * Each check lives in `scripts/artifacts/`, one module per responsibility;
+ * this file only runs them in order and stops at the first that fails.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { $ } from 'bun';
-import { manifestProblems } from './manifest-problems';
-import type { PackedManifest } from './sibling-ranges';
+import { classesDefinedOnce } from './artifacts/classes';
+import { declarationsEmit } from './artifacts/emit';
+import { importsDeclared } from './artifacts/imports';
+import { installAsConsumer, type Packed, pack } from './artifacts/install';
+import { binsRun, subpathsLoad } from './artifacts/load';
+import { manifestProblems } from './artifacts/manifest';
+import { type Pkg, readPackages } from './artifacts/packages';
+import { staleBuilds } from './artifacts/stale';
 
-const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-
-type Pkg = {
-	name: string;
-	dir: string;
-	subpaths: string[];
-	bins: string[];
-	manifest: PackedManifest;
-};
-
-/** Every subpath a package publishes, from its own `exports` map. */
-function subpathsOf(name: string, exports: Record<string, unknown>): string[] {
-	return Object.keys(exports)
-		.filter((key) => key.startsWith('.') && !key.endsWith('package.json'))
-		.map((key) => (key === '.' ? name : `${name}/${key.slice(2)}`));
+async function builtFresh(packages: readonly Pkg[]): Promise<boolean> {
+	const stale = await staleBuilds([...packages]);
+	if (stale.length === 0) return true;
+	console.error('This would verify a stale build, not the working tree:\n');
+	for (const one of stale) console.error(`  ${one}`);
+	console.error(
+		'\nRun `bun run build` first. This script packs `dist/`, which is\n' +
+			'gitignored, so a stale one reports failures the source does not have —\n' +
+			'and they look like environment problems, not build problems.',
+	);
+	return false;
 }
 
-async function readPackages(): Promise<Pkg[]> {
-	const dirs = [...new Bun.Glob('packages/*/package.json').scanSync(ROOT)];
-	const pkgs: Pkg[] = [];
-	for (const rel of dirs.sort()) {
-		const manifest = await Bun.file(join(ROOT, rel)).json();
-		pkgs.push({
-			name: manifest.name,
-			dir: join(ROOT, rel.replace(/\/package\.json$/, '')),
-			subpaths: subpathsOf(manifest.name, manifest.exports ?? {}),
-			bins:
-				typeof manifest.bin === 'string'
-					? [manifest.name.split('/').pop()]
-					: Object.keys(manifest.bin ?? {}),
-			manifest,
-		});
-	}
-	return pkgs;
+async function tarballsSound(
+	packages: readonly Pkg[],
+	{ tarballs }: Packed,
+): Promise<boolean> {
+	const versions = Object.fromEntries(packages.map((p) => [p.name, p.version]));
+	const problems = await manifestProblems(tarballs, versions);
+	if (problems.length === 0) return true;
+	console.error('\nA published tarball would break a consumer:\n');
+	for (const problem of problems) console.error(`  ${problem}`);
+	console.error(
+		'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
+			'on no registry, a sibling range that leaves out the sibling beside\n' +
+			'it, an exact pin on a sibling, a package that lists itself, a\n' +
+			'license other than MIT or no LICENSE shipped, a `files` entry the\n' +
+			'tarball does not hold, test code shipped, or a scoped package not\n' +
+			'published as public. See AGENTS.md.',
+	);
+	return false;
 }
 
-const packages = await readPackages();
-const workdir = await mkdtemp(join(tmpdir(), 'nxgt-telemetry-verify-'));
+async function main(): Promise<boolean> {
+	const packages = await readPackages();
+	if (!(await builtFresh(packages))) return false;
 
-try {
-	console.log(`Packing ${packages.length} packages…`);
-	const tarballs: string[] = [];
-	const overrides: Record<string, string> = {};
-	for (const pkg of packages) {
-		await $`bun pm pack --destination ${workdir}`.cwd(pkg.dir).quiet();
-		const file = [...new Bun.Glob('*.tgz').scanSync(workdir)]
-			.map((f) => join(workdir, f))
-			.find((f) => !tarballs.includes(f));
-		if (!file) throw new Error(`${pkg.name}: bun pm pack produced no tarball`);
-		tarballs.push(file);
-		overrides[pkg.name] = `file:${file}`;
-	}
-
-	const problems = await manifestProblems(
-		tarballs,
-		packages.map((p) => p.manifest),
-	);
-	if (problems.length > 0) {
-		console.error('\nA published manifest would break a consumer:\n');
-		for (const problem of problems) console.error(`  ${problem}`);
-		console.error(
-			'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
-				'on no registry, an exact pin on a sibling, a sibling range other\n' +
-				'than its workspace: spec asks for, or a license other than\n' +
-				'MIT or no LICENSE shipped. See AGENTS.md.',
+	const workdir = await mkdtemp(join(tmpdir(), 'nxgt-telemetry-verify-'));
+	try {
+		const packed = await pack(workdir, packages);
+		return (
+			(await tarballsSound(packages, packed)) &&
+			(await installAsConsumer(workdir, packed)) &&
+			(await subpathsLoad(workdir, packages)) &&
+			(await classesDefinedOnce(workdir, packages)) &&
+			(await importsDeclared(workdir, packages)) &&
+			(await binsRun(workdir, packages)) &&
+			(await declarationsEmit(workdir, packages))
 		);
-		process.exit(1);
+	} finally {
+		await rm(workdir, { recursive: true, force: true });
 	}
+}
 
-	// An optional peer is installed only by whoever asks for it, so ask for each
-	// one: the subpath that needs it then loads because it is installed on
-	// purpose, not because another package's peer happened to hoist it. One
-	// on no registry is left out, as the manifest check above allows.
-	const optionalPeers: Record<string, string> = {};
-	for (const tgz of tarballs) {
-		const manifest = JSON.parse(
-			await $`tar -xzOf ${tgz} package/package.json`.quiet().text(),
-		);
-		const meta: Record<string, { optional?: boolean }> =
-			manifest.peerDependenciesMeta ?? {};
-		for (const [peer, range] of Object.entries<string>(
-			manifest.peerDependencies ?? {},
-		)) {
-			if (!meta[peer]?.optional || peer in overrides || peer in optionalPeers) {
-				continue;
-			}
-			const res = await fetch(
-				`https://registry.npmjs.org/${peer.replace('/', '%2F')}`,
-				{ method: 'HEAD' },
-			).catch(() => null);
-			if (res?.ok) optionalPeers[peer] = range;
-		}
-	}
-
-	await Bun.write(
-		join(workdir, 'package.json'),
-		`${JSON.stringify(
-			{
-				name: 'nxgt-telemetry-artifact-probe',
-				private: true,
-				version: '0.0.0',
-				type: 'module',
-				dependencies: { ...optionalPeers, ...overrides },
-				overrides,
-				resolutions: overrides,
-			},
-			null,
-			2,
-		)}\n`,
-	);
-
-	console.log('Installing them as a consumer would…');
-	const install = await $`bun install`.cwd(workdir).quiet().nothrow();
-	if (install.exitCode !== 0) {
-		console.error(`\n${install.stderr.toString().trim()}`);
-		console.error(
-			'\nThe install failed. A required peer on a package that is on no\n' +
-				'registry is the usual cause — an optional one never fails an install.',
-		);
-		process.exit(1);
-	}
-
-	const subpaths = packages.flatMap((p) => p.subpaths);
-	console.log(`Importing ${subpaths.length} declared subpaths…\n`);
-	const probe = subpaths
-		.map(
-			(s) =>
-				`try { const m = await import(${JSON.stringify(s)});` +
-				` console.log("  ok      ${s.padEnd(40)}" + Object.keys(m).length + " exports"); }` +
-				` catch (e) { failed++; console.log("  FAIL    ${s.padEnd(40)}" + e.message.split("\\n")[0]); }`,
-		)
-		.join('\n');
-	await Bun.write(
-		join(workdir, 'probe.mjs'),
-		`let failed = 0;\n${probe}\nprocess.exit(failed);\n`,
-	);
-
-	const result = await $`bun run probe.mjs`.cwd(workdir).nothrow();
-	if (result.exitCode !== 0) {
-		console.error(
-			`\n${result.exitCode} subpath(s) failed to load from the built artifact.\n` +
-				'A build exiting 0 is not evidence the artifact loads. See AGENTS.md.',
-		);
-		process.exit(1);
-	}
-	console.log(`\nAll ${subpaths.length} subpaths load.`);
-
-	const bins = packages.flatMap((p) => p.bins);
-	if (bins.length > 0) {
-		console.log(`\nRunning ${bins.length} declared bin(s) with --help…\n`);
-		let broken = 0;
-		for (const bin of bins) {
-			const ran = await $`./node_modules/.bin/${bin} --help`
-				.cwd(workdir)
-				.quiet()
-				.nothrow();
-			const ok = ran.exitCode === 0;
-			if (!ok) broken++;
-			console.log(
-				`  ${ok ? 'ok  ' : 'FAIL'}    ${bin.padEnd(40)}` +
-					(ok ? '' : ran.stderr.toString().split('\n')[0]),
-			);
-		}
-		if (broken > 0) {
-			console.error(
-				`\n${broken} bin(s) failed to run from node_modules/.bin. A missing #!\n` +
-					'line or a non-executable file is the usual cause; build.ts checks both.',
-			);
-			process.exit(1);
-		}
-		console.log(`\nAll ${bins.length} bin(s) run.`);
-	}
-} finally {
-	await rm(workdir, { recursive: true, force: true });
+if (import.meta.main && !(await main())) {
+	process.exit(1);
 }

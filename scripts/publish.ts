@@ -113,7 +113,7 @@ async function main(): Promise<void> {
 	const packages = inDependencyOrder(await readPackages());
 	let published = 0;
 	let failed = 0;
-	const changesetsOutput = process.env['CHANGESETS_OUTPUT'];
+	const changesetsOutput = process.env.CHANGESETS_OUTPUT;
 
 	for (const pkg of packages) {
 		if (await isPublished(pkg.name, pkg.version)) {
