@@ -383,8 +383,8 @@ publishes to npm.
 
 - Biome, with tabs and single quotes. Run `./node_modules/.bin/biome check
   --write` before committing, and `biome ci` must pass.
-- Commit messages: `<type>: <Capitalized summary>`, with types `feat`, `fix`,
-  `update`, `chore`, `docs`, `refactor`, `tests` and `typo`.
+- Commit messages and PR titles follow the global Conventional Commits rule
+  ("Commits" in `~/.claude/CLAUDE.md`).
 - Git: the default branch is `develop`. Work on a feature branch and open a
   pull request into `develop`.
 - A repository script is a TypeScript file run by Bun, with Bun Shell, not a
