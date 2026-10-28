@@ -1,5 +1,11 @@
 # @nxgt/telemetry-httpyz
 
+## 0.2.2
+
+### Patch Changes
+
+- [#31](https://github.com/softistx/nxgt-telemetry/pull/31) [`3266655`](https://github.com/softistx/nxgt-telemetry/commit/3266655edc4617eb17fc5f20a4f3ba9788308dce) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Admit `@nxgt/httpyz` 0.4 and 0.5 as the peer: the range is `>=0.3.0 <0.6.0` where it was `^0.3.0`, which a project on 0.4 or 0.5 met as an incorrect-peer warning. The middleware is unchanged and is tested against 0.5.0.
+
 ## 0.2.1
 
 ### Patch Changes
