@@ -47,11 +47,11 @@
         "@nxgt/telemetry": "workspace:^",
       },
       "devDependencies": {
-        "@nxgt/httpyz": "0.3.0",
+        "@nxgt/httpyz": "0.5.0",
         "@types/bun": "^1.4.2",
       },
       "peerDependencies": {
-        "@nxgt/httpyz": "^0.3.0",
+        "@nxgt/httpyz": ">=0.3.0 <0.6.0",
         "typescript": "^6.0.3",
       },
       "optionalPeers": [
@@ -182,7 +182,7 @@
 
     "@mongodb-js/saslprep": ["@mongodb-js/saslprep@1.5.4", "", { "dependencies": { "sparse-bitfield": "^3.0.3" } }, "sha512-05UC0jQsjKAOuXQ0H9Ud9vUTJpZIg+n/FinpR30tI5I8pY2inTfPOZ5OF/cg3Ce/N9MoD1xhRCeOsJtuTbFYlw=="],
 
-    "@nxgt/httpyz": ["@nxgt/httpyz@0.3.0", "", { "peerDependencies": { "typescript": "^6.0.3" } }, "sha512-dnCQC2YS0lDtu2DA6mKhmduG3Uj8GW6gVyTlEnhKc1xQR18OLdclRxsoXCSh6gpCE8vZ+Y5fDl9ixSVCEammww=="],
+    "@nxgt/httpyz": ["@nxgt/httpyz@0.5.0", "", { "peerDependencies": { "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-mEJofa6wB3s9FAPFlKO5FxHMIuZLTEIg3KafWMc7TDOBxy1LWKZiXI5O5LH7ISxgsCYoFekJlZe0fxlrPgQx8g=="],
 
     "@nxgt/telemetry": ["@nxgt/telemetry@workspace:packages/telemetry"],
 
